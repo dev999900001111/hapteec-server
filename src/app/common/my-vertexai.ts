@@ -101,25 +101,27 @@ export function mapForGemini(args: ChatCompletionCreateParamsBase): GenerateCont
     if (args.messages.length == 0) return req;
     args.messages[0].content = args.messages[0].content || '';
     // argsをGemini用に変換
-    const roleMapper = {
+    const roleMapper: { [key: string]: 'system' | 'model' | 'user' | 'function' } = {
         system: 'system',
         assistant: 'model',
         user: 'user',
         function: 'user',
+        tool: 'function',
     };
     // console.log(`mapForGemini: ${args.messages.length}++++++++++++++++++++++++++++++++++++++++++++++++++++++++++`);
     args.messages.forEach(message => {
+        const role = roleMapper[message.role] || message.role;
         // 画像ファイルなどが入ってきたとき用の整理
         if (typeof message.content === 'string') {
             if (message.role === 'system') {
                 // systemはsystemInstructionに入れる
-                req.systemInstruction = { role: message.role, parts: [{ text: message.content }] };
+                req.systemInstruction = { role, parts: [{ text: message.content }] };
             } else {
-                req.contents.push({ role: message.role, parts: [{ text: message.content }] });
+                req.contents.push({ role, parts: [{ text: message.content }] });
             }
         } else if (Array.isArray(message.content)) {
             const remappedContent = {
-                role: message.role,
+                role,
                 parts:
                     message.content.map(content => {
                         if (content.type === 'image_url') {
@@ -284,6 +286,13 @@ export function mapForGeminiExtend(args: ChatCompletionCreateParamsBase, _req?: 
         ];
     }
 
+    // gemini-2.5-flash-preview-04-17 の場合は、thinking_configを設定する。
+    if (args.model === 'gemini-2.5-flash-preview-04-17') {
+        (req.generationConfig as any).thinking_config = { thinking_budget: 0 };
+    } else if (args.model === 'gemini-2.5-flash-thinking-preview-04-17') {
+        args.model = 'gemini-2.5-flash-preview-04-17';
+    }
+
     // コンテンツキャッシュ
     const cachedContent = (args as any).cachedContent as CachedContent;
     delete (args as any).cachedContent;
@@ -298,7 +307,7 @@ export function mapForGeminiExtend(args: ChatCompletionCreateParamsBase, _req?: 
         // 何も設定しなくてもいいかも。。
         // req.region = 'us-central1';
         // req.resourcePath = `projects/${GCP_PROJECT_ID}/locations/${req.region}/endpoints/openapi/chat/completions`;
-    } else if ((args.model.startsWith('gemini-') && args.model.includes('-exp')) || args.model.startsWith('gemini-2.0-')) { // gemini系のexp（実験版）はus-central1に固定
+    } else if ((args.model.startsWith('gemini-') && args.model.includes('-exp')) || args.model.startsWith('gemini-2')) { // gemini系のexp（実験版）はus-central1に固定
         // 何も設定しなくてもいいかも。。
         // req.region = 'us-central1';
         // req.resourcePath = `projects/${GCP_PROJECT_ID}/locations/${req.region}/endpoints/openapi/chat/completions`;
@@ -384,6 +393,12 @@ export function convertToolDef(tool: ChatCompletionTool): FunctionDeclaration {
         if (newSchema.items) {
             newSchema.items = convertSchema(newSchema.items);
         }
+
+        if (Object.hasOwnProperty.call(newSchema, 'default')) { // defaultがfalseとかだとプロパティがあってもfalse判定されるので、プロパティが指定されているかどうかをちゃんとチェックする。
+            // defaultがある場合は、descriptionに追加して消す。
+            newSchema.description = `${newSchema.description}\n\ndefault: ${newSchema.default}`;
+            delete newSchema.default;
+        } else { }
         return newSchema;
     }
 

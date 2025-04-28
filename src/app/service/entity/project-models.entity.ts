@@ -27,6 +27,8 @@ export class TeamEntity extends MyBaseEntity {
 
 
 @Entity()
+@Index(['tenantKey', 'teamId']) // インデックスを追加
+@Index(['tenantKey', 'userId']) // インデックスを追加
 export class TeamMemberEntity extends MyBaseEntity {
     // @PrimaryGeneratedColumn('uuid')
     // id!: string;
@@ -181,6 +183,7 @@ export class PredictHistoryWrapperEntity extends MyBaseEntity {
 // }
 
 @Entity()
+@Index(['tenantKey', 'teamId']) // インデックスを追加
 export class ProjectEntity extends MyBaseEntity {
     // @PrimaryGeneratedColumn('uuid')
     // id!: string;
@@ -206,6 +209,7 @@ export class ProjectEntity extends MyBaseEntity {
 }
 
 @Entity()
+@Index(['tenantKey', 'projectId']) // インデックスを追加
 export class ThreadGroupEntity extends MyBaseEntity {
     // @PrimaryGeneratedColumn('uuid')
     // id!: string;
@@ -238,6 +242,7 @@ export class ThreadGroupEntity extends MyBaseEntity {
 
 
 @Entity()
+@Index(['tenantKey', 'threadGroupId']) // インデックスを追加
 export class ThreadEntity extends MyBaseEntity {
     // @PrimaryGeneratedColumn('uuid')
     // id!: string;
@@ -261,6 +266,7 @@ export class ThreadEntity extends MyBaseEntity {
 }
 
 @Entity()
+@Index(['tenantKey', 'threadId']) // インデックスを追加
 export class MessageClusterEntity extends MyBaseEntity {
 
     @Index() // インデックス
@@ -282,6 +288,7 @@ export class MessageClusterEntity extends MyBaseEntity {
 }
 
 @Entity()
+@Index(['tenantKey', 'threadId']) // インデックスを追加
 export class MessageGroupEntity extends MyBaseEntity {
     // @PrimaryGeneratedColumn('uuid')
     // id!: string;
@@ -309,12 +316,16 @@ export class MessageGroupEntity extends MyBaseEntity {
     @Column({ type: 'integer', default: 0 })
     touchCounter!: number; // タッチカウンター（TypeORMのせいで更新時刻だけを更新したいときに変更されたプロパティが無いと更新が反映されないから）
 
+    @Column({ nullable: true })
+    source?: string; // ソース情報（user/AIモデル名）。本来はnullableにすべきではなかったが後からではどうにもならなかったので。
+
     // @Column({ nullable: true })
     // editedRootMessageGroupId!: string;
 }
 
 
 @Entity()
+@Index(['tenantKey', 'messageGroupId']) // インデックスを追加
 export class MessageEntity extends MyBaseEntity {
     // @PrimaryGeneratedColumn('uuid')
     // id!: string;
@@ -353,6 +364,7 @@ export class MessageEntity extends MyBaseEntity {
 }
 
 @Entity()
+@Index(['tenantKey', 'messageId']) // インデックスを追加
 export class ContentPartEntity extends MyBaseEntity {
     // @PrimaryGeneratedColumn('uuid')
     // id!: string;

@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Generated, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Generated, In, Index, PrimaryGeneratedColumn } from 'typeorm';
 import { MyBaseEntity } from './base.js';
 export enum UserStatus {
     // アクティブ系
@@ -20,7 +20,9 @@ export enum UserRoleType {
     User = 'User', // ユーザー
 
     Owner = 'Owner', // 所有者
-    Admin = 'Admin', // 管理者（オーナーに統合したので今は使わない）
+    BizAdmin = 'BizAdmin', // ビジネス管理者
+    SysAdmin = 'SysAdmin', // システム管理者
+    Admin = 'Admin', // 管理者（
     Member = 'Member', // メンバー（スレッドの作成、編集、削除ができる）
     Viewer = 'Viewer', // 閲覧者（スレッドの閲覧のみ）
     Guest = 'Guest', // ゲスト（スレッドの閲覧のみ）
@@ -42,10 +44,10 @@ export class UserEntity extends MyBaseEntity {
     @Column()
     email!: string;
 
-    @Column({ default: UserRoleType.User })
+    @Column({ type: 'enum', enum: UserRoleType, default: UserRoleType.User })
     role!: UserRoleType;
 
-    @Column({ default: UserStatus.Active })
+    @Column({ type: 'enum', enum: UserStatus, default: UserStatus.Active })
     status!: UserStatus;
 
     @Column({ nullable: true })
@@ -221,7 +223,7 @@ export enum OAuthAccountStatus {
 }
 
 @Entity()
-@Index(['userId', 'provider', 'providerUserId'], { unique: true })
+@Index(['tenantKey', 'userId', 'provider', 'providerUserId'], { unique: true })
 export class OAuthAccountEntity extends MyBaseEntity {
     // @PrimaryGeneratedColumn('uuid')
     // id!: string;
@@ -259,3 +261,122 @@ export class OAuthAccountEntity extends MyBaseEntity {
     @Column({ type: 'enum', enum: OAuthAccountStatus, default: OAuthAccountStatus.ACTIVE })
     status!: OAuthAccountStatus;
 }
+
+export interface OAuth2Config extends OAuth2ConfigTemplate {
+    clientId: string;
+    clientSecret: string;
+    requireMailAuth: boolean;
+}
+
+export enum ApiProviderAuthType {
+    OAuth2 = 'OAuth2',
+    APIKey = 'APIKey',
+}
+
+export enum ApiProviderPostType {
+    json = 'json',
+    params = 'params',
+    form = 'form',
+}
+export interface OAuth2ConfigTemplate {
+    pathAuthorize: string;
+    pathAccessToken: string;
+    pathTop: string;
+    scope: string;
+    postType: ApiProviderPostType;
+    redirectUri: string;
+}
+
+@Entity()
+// @Index(['tenantKey', 'type', 'uriBase'], { unique: true }) // テナントごとに一意
+@Index(['tenantKey', 'type', 'name'], { unique: true }) // テナントごとに一意
+export class ApiProviderEntity extends MyBaseEntity {
+
+    @Column()
+    type!: string; // 'gitlab' | 'gitea' | etc
+
+    @Column()
+    name!: string; // 'gitlab-local' | etc
+
+    @Column()
+    label!: string; // 'GitLab' | 'Gitea' | etc
+
+    @Column({ type: 'enum', enum: ApiProviderAuthType, default: ApiProviderAuthType.OAuth2 })
+    authType!: ApiProviderAuthType;
+
+    @Column()
+    uriBase!: string;
+
+    @Column({ nullable: true })
+    uriBaseAuth?: string;
+
+    @Column()
+    pathUserInfo!: string;
+
+    @Column({ nullable: true, type: 'jsonb' })
+    oAuth2Config?: OAuth2Config;
+
+    @Column({ nullable: true })
+    description?: string;
+
+    @Column({ type: 'integer' })
+    @Generated('increment')
+    sortSeq!: number;
+
+    @Column({ default: false })
+    isDeleted!: boolean;
+}
+
+@Entity()
+export class ApiProviderTemplateEntity extends MyBaseEntity {
+
+    @Index({ unique: true })
+    @Column()
+    name!: string; // 'gitlab' | 'gitea' | etc
+
+    @Column({ type: 'enum', enum: ApiProviderAuthType, default: ApiProviderAuthType.OAuth2 })
+    authType!: ApiProviderAuthType;
+
+    @Column()
+    pathUserInfo!: string;
+
+    @Column()
+    uriBaseAuth?: string;
+
+    @Column({ nullable: true, type: 'jsonb' })
+    oAuth2Config?: OAuth2ConfigTemplate;
+
+    @Column({ nullable: true })
+    description?: string;
+
+    @Column({ default: false })
+    isDeleted!: boolean;
+}
+
+export interface SiteConfig {
+    theme?: string;
+    logoUrl?: string;
+    contactEmail?: string;
+    supportUrl?: string;
+    privacyPolicyUrl?: string;
+    termsOfServiceUrl?: string;
+    oauth2RedirectUriList?: string[];
+    pathTop?: string;
+}
+
+@Entity()
+export class TenantEntity extends MyBaseEntity {
+    @Column()
+    name!: string;
+
+    @Column({ nullable: true })
+    description?: string;
+
+    @Column({ nullable: true, type: 'jsonb' })
+    siteConfig!: SiteConfig;
+
+    @Column({ default: true })
+    isActive!: boolean;
+}
+
+

@@ -3,17 +3,14 @@ import { body, param, query } from "express-validator";
 import multer from 'multer';
 import crypto from 'crypto';
 import path from 'path';
-import { detect } from 'jschardet';
 import { promises as fs } from 'fs';
-import mime from 'mime-types';
 
 import { validationErrorHandler } from "../middleware/validation.js";
 import { OAuthUserRequest } from "../models/info.js";
 import { ds } from '../db.js';
-import { readOAuth2Env } from '../controllers/auth.js';
+import { ExtApiClient, getExtApiClient } from '../controllers/auth.js';
 import { BoxApiCollection, BoxApiCollectionItem, BoxApiCollectionList, BoxApiFolder, BoxApiItemEntry, BoxApiPathEntry, BoxCollectionEntity, BoxFileBodyEntity, BoxFileEntity, BoxItemEntity, BoxItemType } from '../entity/api-box.entity.js';
 import { myDetectFile } from '../controllers/file-manager.js';
-import { FileBodyEntity } from '../entity/file-models.entity.js';
 import { Utils } from '../../common/utils.js';
 import { getAxios } from '../../common/http-client.js';
 
@@ -22,7 +19,7 @@ const { BOX_DOWNLOAD_DIR } = process.env;
 const ITEM_QUERY = `fields=name,modified_at,modified_by,created_at,content_modified_at,shared_link,size,extension,lock,classification,permissions`;
 
 export const boxApiItem = [
-    param('provider').isString().notEmpty(),
+    param('providerName').isString().notEmpty(),
     param('types').isIn(['folders', 'collections']).notEmpty(),
     param('itemId').isString().notEmpty(),
     query('fromcache').isBoolean().optional(),
@@ -31,7 +28,8 @@ export const boxApiItem = [
     validationErrorHandler,
     async (_req: Request, res: Response) => {
         const req = _req as OAuthUserRequest;
-        const { provider, types, itemId } = req.params as { provider: string, types: string, itemId: string };
+        const { providerName, types, itemId } = req.params as { providerName: string, types: string, itemId: string };
+        const provider = `box-${providerName}`;
         const type = types.substring(0, types.length - 1);
         const fromcache = req.query.fromcache === 'true';
         const offset = Number(req.query.offset) || 0;
@@ -43,18 +41,22 @@ export const boxApiItem = [
             if (fromcache) {
                 // fromcache=trueの場合はキャッシュを返す
                 try {
-                    let itemEntity = await ds.getRepository(BoxItemEntity).findOneByOrFail({ userId: req.info.user.id, itemId, offset, limit });
+                    let itemEntity = await ds.getRepository(BoxItemEntity).findOneByOrFail({ tenantKey: req.info.user.tenantKey, userId: req.info.user.id, itemId, offset, limit });
                     // キャッシュがあればそれを先に返しておく。APIの結果が返ってきたらそれでキャッシュを上書きしておく。
                     res.json(itemEntity.data);
-                } catch (e) {
+                    return;
+                } catch (error) {
                     res.status(404).json({ error: 'Cache not found' });
+                    return;
                 }
             } else {
                 // fromcache=falseの場合はAPIを叩いてキャッシュを更新する
-                const e = readOAuth2Env(provider);
-                if (e.uriBase) {
-                } else {
-                    return res.status(400).json({ error: 'Provider not found' });
+                const e = {} as ExtApiClient;
+                try {
+                    Object.assign(e, await getExtApiClient(req.info.user.tenantKey, provider));
+                } catch (error) {
+                    res.status(401).json({ error: `${provider}は認証されていません。` });
+                    return;
                 }
                 // collectionsのときとfolderの時で/itemsをつけるかつけないかが変わる。クソ仕様だと思う。
                 const url = `${e.uriBase}/2.0/${types}/${itemId}${type === 'collection' ? '/items' : ''}?offset=${offset}&limit=${limit}`;
@@ -63,13 +65,15 @@ export const boxApiItem = [
                 const axios = await getAxios(url);
                 const response = await axios.get<BoxApiFolder>(url, { headers: { Authorization: `Bearer ${req.info.oAuth.accessToken}`, }, });
                 const folder = response.data;
-                console.log(`Retrieved ${folder.item_collection.entries.length} items. Total count: ${folder.item_collection.total_count}`);
-                if (folder.item_collection.entries.length > 0) {
+                const entries = (folder as any).entries || folder.item_collection.entries;
+                const total_count = (folder as any).total_count >= 0 ? (folder as any).total_count : folder.item_collection.total_count;
+                // console.log(`Retrieved ${entries.length} items. Total count: ${total_count}`);
                     const savedFolder = await ds.transaction(async (tm) => {
-                        let itemEntity = await tm.getRepository(BoxItemEntity).findOneBy({ userId: req.info.user.id, type, itemId, offset, limit });
+                    let itemEntity = await tm.getRepository(BoxItemEntity).findOneBy({ tenantKey: req.info.user.tenantKey, userId: req.info.user.id, type, itemId, offset, limit });
                         if (itemEntity) {
                         } else {
                             itemEntity = new BoxItemEntity();
+                        itemEntity.tenantKey = req.info.user.tenantKey;
                             itemEntity.userId = req.info.user.id;
                             itemEntity.itemId = itemId;
                             itemEntity.type = type;
@@ -86,9 +90,7 @@ export const boxApiItem = [
                         return await tm.getRepository(BoxItemEntity).save(itemEntity);
                     });
                     res.json(savedFolder.data);
-                } else {
-                    res.status(404).json({ error: 'Not Found' });
-                }
+                return;
             }
 
         } catch (error) {
@@ -98,21 +100,148 @@ export const boxApiItem = [
     }
 ];
 
+// export const boxApiItem2 = [
+//     param('provider').isString().notEmpty(),
+//     param('types').isIn(['folders', 'collections']).notEmpty(),
+//     param('itemId').isString().notEmpty(),
+//     query('fromcache').isBoolean().optional(),
+//     query('offset').isNumeric().optional(),
+//     query('limit').isNumeric().optional(),
+//     validationErrorHandler,
+//     async (_req: Request, res: Response) => {
+//         const req = _req as OAuthUserRequest;
+//         const { provider, types, itemId } = req.params as { provider: string, types: string, itemId: string };
+//         const type = types.substring(0, types.length - 1);
+//         const fromcache = req.query.fromcache === 'true';
+//         const offset = Number(req.query.offset) || 0;
+//         const limit = Number(req.query.limit) || 100000; // クライアント側から要求された最大件数
+
+//         try {
+//             if (fromcache) {
+//                 // fromcache=trueの場合はキャッシュを返す
+//                 try {
+//                     let itemEntity = await ds.getRepository(BoxItemEntity).findOneByOrFail({
+//                         userId: req.info.user.id,
+//                         itemId
+//                     });
+//                     // キャッシュがあればそれを先に返す
+//                     res.json(itemEntity.data);
+//                 } catch (e) {
+//                     res.status(404).json({ error: 'Cache not found' });
+//                 }
+//             } else {
+//                 // fromcache=falseの場合はAPIを繰り返し叩いて全データを取得
+//                 const e = readOAuth2Env(provider);
+//                 if (!e.uriBase) {
+//                     return res.status(400).json({ error: 'Provider not found' });
+//                 }
+
+//                 // 全てのエントリを格納する配列
+
+//                 let allEntries: (BoxApiItemEntry | BoxApiPathEntry)[] = [];
+//                 let totalCount = 0;
+//                 let currentOffset = offset;
+//                 const maxPerPage = 100; // Box APIの1回あたりの最大取得件数
+
+//                 // limitに達するか、全データを取得するまで繰り返す
+//                 let hasMore = true;
+
+//                 let firstPageResponse!: BoxApiFolder;
+//                 while (hasMore && allEntries.length < limit) {
+//                     // Box APIの呼び出し
+//                     const url = `${e.uriBase}/2.0/${types}/${itemId}${type === 'collection' ? '/items' : ''}?offset=${currentOffset}&limit=${maxPerPage}`;
+
+//                     const response = await e.axios.get<BoxApiFolder>(url, {
+//                         headers: { Authorization: `Bearer ${req.info.oAuth.accessToken}` }
+//                     });
+
+//                     const folderPage = response.data;
+//                     firstPageResponse = folderPage;
+//                     totalCount = folderPage.item_collection.total_count || 0;
+
+//                     // エントリを追加
+//                     if (folderPage.item_collection.entries && folderPage.item_collection.entries.length > 0) {
+//                         allEntries = [...allEntries, ...folderPage.item_collection.entries];
+//                     }
+
+//                     // 次のページがあるかチェック
+//                     currentOffset += folderPage.item_collection.entries.length;
+//                     hasMore = currentOffset < totalCount;
+
+//                     // limitに達したか過去全件取得できたらループ終了
+//                     if (allEntries.length >= limit || !hasMore) {
+//                         break;
+//                     }
+//                 }
+
+//                 // // 最初のレスポンスのテンプレートとして使用
+//                 // const firstPageResponse = response.data;
+
+//                 // 最終的なレスポンスデータ
+//                 const completeResponse = {
+//                     ...firstPageResponse,
+//                     entries: allEntries.slice(0, limit), // limitに合わせて切り詰める
+//                     offset,
+//                     limit,
+//                     total_count: totalCount,
+//                     has_more: allEntries.length + offset < totalCount,
+//                 };
+
+//                 // データをキャッシュに保存
+//                 const savedFolder = await ds.transaction(async (tm) => {
+//                     let itemEntity = await tm.getRepository(BoxItemEntity).findOneBy({
+//                         userId: req.info.user.id,
+//                         type,
+//                         itemId
+//                     });
+
+//                     if (!itemEntity) {
+//                         itemEntity = new BoxItemEntity();
+//                         itemEntity.userId = req.info.user.id;
+//                         itemEntity.itemId = itemId;
+//                         itemEntity.type = type;
+//                         itemEntity.createdBy = req.info.user.id;
+//                         itemEntity.createdIp = req.info.ip;
+//                     }
+
+//                     itemEntity.data = completeResponse;
+//                     itemEntity.updatedBy = req.info.user.id;
+//                     itemEntity.updatedIp = req.info.ip;
+
+//                     return await tm.getRepository(BoxItemEntity).save(itemEntity);
+//                 });
+
+//                 res.json(completeResponse);
+//             }
+//         } catch (error) {
+//             console.error(error);
+//             res.status((error as any).status || 500).json({
+//                 error: (error as any).message || 'Internal Server Error'
+//             });
+//         }
+//     }
+// ];
+
+
+
 // 
 export const upsertBoxApiCollection = [
-    param('provider').isString().notEmpty(),
+    param('providerName').isString().notEmpty(),
     body('collectionId').isString().notEmpty(),
     validationErrorHandler,
     async (_req: Request, res: Response) => {
         const req = _req as OAuthUserRequest;
-        const { provider } = req.params as { provider: string };
+        const { providerName } = req.params as { providerName: string };
+        const provider = `box-${providerName}`;
         const { collectionId } = req.body as { collectionId: string };
         try {
             // fromcache=falseの場合はAPIを叩いてキャッシュを更新する
-            const e = readOAuth2Env(provider);
-            if (e.uriBase) {
-            } else {
-                return res.status(400).json({ error: 'Provider not found' });
+            const e = {} as ExtApiClient;
+            try {
+                Object.assign(e, await getExtApiClient(req.info.user.tenantKey, provider));
+            } catch (error) {
+                res.status(401).json({ error: `${provider}は認証されていません。` });
+                return;
             }
             const url = `${e.uriBase}/2.0/collections/${collectionId}`;
             const axios = await getAxios(url);
@@ -124,10 +253,11 @@ export const upsertBoxApiCollection = [
             const collectionItem = responseItem.data;
 
             const savedCollection = await ds.transaction(async (tm) => {
-                let collectionEntity = await tm.getRepository(BoxCollectionEntity).findOneBy({ userId: req.info.user.id, collectionId });
+                let collectionEntity = await tm.getRepository(BoxCollectionEntity).findOneBy({ tenantKey: req.info.user.tenantKey, userId: req.info.user.id, collectionId });
                 if (collectionEntity) {
                 } else {
                     collectionEntity = new BoxCollectionEntity();
+                    collectionEntity.tenantKey = req.info.user.tenantKey;
                     collectionEntity.userId = req.info.user.id;
 
                     collectionEntity.collectionId = collection.id;
@@ -155,18 +285,21 @@ export const upsertBoxApiCollection = [
 ];
 
 export const boxApiCollection = [
-    param('provider').isString().notEmpty(),
+    param('providerName').isString().notEmpty(),
     validationErrorHandler,
     async (_req: Request, res: Response) => {
         const req = _req as OAuthUserRequest;
-        const { provider } = req.params as { provider: string, collectionId: string };
+        const { providerName } = req.params as { providerName: string, collectionId: string };
+        const provider = `box-${providerName}`;
         // console.log(`provider: ${provider}, collectionId: ${collectionId} fromcache: ${fromcache}`);
         try {
             // fromcache=falseの場合はAPIを叩いてキャッシュを更新する
-            const e = readOAuth2Env(provider);
-            if (e.uriBase) {
-            } else {
-                return res.status(400).json({ error: 'Provider not found' });
+            const e = {} as ExtApiClient;
+            try {
+                Object.assign(e, await getExtApiClient(req.info.user.tenantKey, provider));
+            } catch (error) {
+                res.status(401).json({ error: `${provider}は認証されていません。` });
+                return;
             }
             const url = `${e.uriBase}/2.0/collections`;
             const axios = await getAxios(url);
@@ -174,7 +307,7 @@ export const boxApiCollection = [
             const collection = response.data;
 
             // 登録済みのコレクションを取得
-            const collectionEntityList = await ds.getRepository(BoxCollectionEntity).findBy({ userId: req.info.user.id });
+            const collectionEntityList = await ds.getRepository(BoxCollectionEntity).findBy({ tenantKey: req.info.user.tenantKey, userId: req.info.user.id });
             collectionEntityList.forEach(c => {
                 collection.entries.push({
                     type: c.type,
@@ -199,7 +332,7 @@ const upload = multer(); // multerを初期化
  * OPTINOSにデータのやり取りをさせる設計になっているBOX-API自体がダメだと思う。
  */
 export const boxUpload = [
-    param('provider').isString().notEmpty(),
+    param('providerName').isString().notEmpty(),
     param('fileId').optional().isString(),
     // body('name').isString().notEmpty(),
     // body('parent.id').isNumeric().notEmpty(),
@@ -213,15 +346,18 @@ export const boxUpload = [
     validationErrorHandler,
     async (_req: Request, res: Response) => {
         const req = _req as OAuthUserRequest;
-        const { provider, fileId } = req.params as { provider: string, fileId: string };
+        const { providerName, fileId } = req.params as { providerName: string, fileId: string };
+        const provider = `box-${providerName}`;
         // const { name, parent, size } = req.body as { name: string, parent: { id: string }, size: number };
         // console.log(`provider: ${provider}, name: ${name} parent.id: ${parent.id} size=${size}`);
 
         // fromcache=falseの場合はAPIを叩いてキャッシュを更新する
-        const e = readOAuth2Env(provider);
-        if (e.uriBase) {
-        } else {
-            return res.status(400).json({ error: 'Provider not found' });
+        const e = {} as ExtApiClient;
+        try {
+            Object.assign(e, await getExtApiClient(req.info.user.tenantKey, provider));
+        } catch (error) {
+            res.status(401).json({ error: `${provider}は認証されていません。` });
+            return;
         }
 
         // 入力項目チェック
@@ -239,6 +375,7 @@ export const boxUpload = [
         }
 
         async function post(fileId: string, file: Express.Multer.File, attributes: Attributes) {
+            if (e) {
             const url = fileId ? `${e.uriBase}/2.0/files/${fileId}/content` : `${e.uriBase}/2.0/files/content`;
             console.log(url);
             const axios = await getAxios(url);
@@ -268,6 +405,7 @@ export const boxUpload = [
                 },
             });
             res.json(uploadResponse.data);
+            } else { }
         }
 
         try {
@@ -298,22 +436,25 @@ export const boxUpload = [
 /**
  */
 export const boxDownload = [
-    param('provider').isString().notEmpty(),
+    param('providerName').isString().notEmpty(),
     param('fileId').isString().notEmpty(),
     query('format').optional().isIn(['binary', 'base64', 'pdf']),
     validationErrorHandler,
     async (_req: Request, res: Response) => {
         const req = _req as OAuthUserRequest;
-        const { provider, fileId } = req.params as { provider: string, fileId: string };
+        const { providerName, fileId } = req.params as { providerName: string, fileId: string };
+        const provider = `box-${providerName}`;
         const format = req.query.format || 'binary';
-        const e = readOAuth2Env(provider);
-        if (e.uriBase) {
-        } else {
-            return res.status(400).json({ error: 'Provider not found' });
+        const e = {} as ExtApiClient;
+        try {
+            Object.assign(e, await getExtApiClient(req.info.user.tenantKey, provider));
+        } catch (error) {
+            res.status(401).json({ error: `${provider}は認証されていません。` });
+            return;
         }
 
         try {
-            const boxFileMetaInfo = await boxDownloadCoreOnline(provider, fileId, req.info.user.id, req.info.ip);
+            const boxFileMetaInfo = await boxDownloadCoreOnline(e, fileId, req.info.user.id, req.info.ip);
             if (boxFileMetaInfo.status === 'skip') {
                 throw new Error('極秘情報が含まれているのでダウンロードできません');
             } else { }
@@ -350,15 +491,25 @@ export interface BoxFileInfo {
 }
 
 export const boxBatchDownload = [
-    param('provider').isString().notEmpty(),
+    param('providerName').isString().notEmpty(),
     param('fileId').isString().notEmpty(),
     validationErrorHandler,
     async (_req: Request, res: Response) => {
         const req = _req as OAuthUserRequest;
-        const { provider, fileId } = req.params as { provider: string, fileId: string };
+        const { providerName, fileId } = req.params as { providerName: string, fileId: string };
+        const provider = `box-${providerName}`;
         const userId = req.info.user.id;
         const ip = req.info.ip;
-        await boxDownloadCore(provider, fileId, userId, ip)
+
+        // APIを呼び出してデータを取得
+        const e = {} as ExtApiClient;
+        try {
+            Object.assign(e, await getExtApiClient(req.info.user.tenantKey, provider));
+        } catch (error) {
+            res.status(401).json({ error: `${provider}は認証されていません。` });
+            return;
+        }
+        await boxDownloadCore(e, fileId, userId, ip)
             .then(resBody => {
                 res.json(resBody);
             })
@@ -381,7 +532,7 @@ export const boxBatchDownload = [
  * @returns Box APIからのレスポンスデータ
  */
 export async function boxApiItemCore(
-    provider: string, type: 'folder' | 'collection', itemId: string, userId: string, ip: string,
+    e: ExtApiClient, type: 'folder' | 'collection', itemId: string, userId: string, ip: string,
     options: { fromCache?: boolean; offset?: number; limit?: number; fields?: string[]; } = {}
 ): Promise<BoxItemEntity> {
     const { fromCache = true, offset = 0, limit = 100, fields = [] } = options;
@@ -390,7 +541,7 @@ export async function boxApiItemCore(
         // キャッシュからデータを取得するオプションが指定されている場合
         if (fromCache) {
             try {
-                const itemEntity = await ds.getRepository(BoxItemEntity).findOneByOrFail({ userId: userId, itemId });
+                const itemEntity = await ds.getRepository(BoxItemEntity).findOneByOrFail({ tenantKey: e.tenantKey, userId, itemId });
                 console.log(`Get from cache: ${itemId} ${itemEntity.data.name}`);
                 return itemEntity;
             } catch (e) {
@@ -399,11 +550,6 @@ export async function boxApiItemCore(
             }
         } else { }
 
-        // APIを呼び出してデータを取得
-        const e = readOAuth2Env(provider);
-        if (!e.uriBase) {
-            throw new Error('Provider not found');
-        }
 
         // 型に応じてエンドポイントURLを構築
         const types = type === 'folder' ? 'folders' : 'collections';
@@ -429,15 +575,19 @@ export async function boxApiItemCore(
 
         // データをキャッシュに保存
         const itemEntity = await ds.transaction(async (tm) => {
-            let itemEntity = await tm.getRepository(BoxItemEntity).findOneBy({ userId, type, itemId });
+            let itemEntity = await tm.getRepository(BoxItemEntity).findOneBy({ tenantKey: e.tenantKey, userId, type, itemId });
             if (!itemEntity) {
                 itemEntity = new BoxItemEntity();
+                itemEntity.tenantKey = e.tenantKey;
                 itemEntity.userId = userId;
                 itemEntity.itemId = itemId;
                 itemEntity.type = type;
+                itemEntity.tenantKey = e.tenantKey;
                 itemEntity.createdBy = userId;
                 itemEntity.createdIp = ip;
             }
+            itemEntity.offset = offset;
+            itemEntity.limit = limit;
 
             itemEntity.data = folderData;
             itemEntity.updatedBy = userId;
@@ -463,7 +613,7 @@ export async function boxApiItemCore(
  * @returns ダウンロードしたファイルの結果
  */
 export async function downloadAllFilesInFolder(
-    provider: string, folderId: string, userId: string, ip: string,
+    e: ExtApiClient, folderId: string, userId: string, ip: string,
     options: { recursive?: boolean; batchSize?: number; } = {}
 ): Promise<{ downloadedFiles: any[]; failedFiles: any[]; processedFolders: string[]; }> {
     const { recursive = true, batchSize = 100 } = options;
@@ -481,7 +631,7 @@ export async function downloadAllFilesInFolder(
 
         // フォルダの内容を取得（ページング付き）
         const itemEntity = await boxApiItemCore(
-            provider, 'folder', folderId, userId, ip,
+            e, 'folder', folderId, userId, ip,
             { offset, limit: batchSize }
         );
         const folderContent = itemEntity.data;
@@ -501,7 +651,7 @@ export async function downloadAllFilesInFolder(
             if (item.type === 'file') {
                 // ファイルをダウンロード
                 // console.log(`Downloading file: ${item.name} (${item.id})`);
-                const result = await boxDownloadCore(provider, item.id, userId, ip);
+                const result = await boxDownloadCore(e, item.id, userId, ip);
                 downloadedFiles.push({ id: item.id, name: item.name, result });
             } else if (item.type === 'folder' && recursive) {
                 // // なんとなく1秒待つ
@@ -510,7 +660,7 @@ export async function downloadAllFilesInFolder(
                 // console.log(`Processing subfolder: ${item.name} (${item.id})`);
 
                 const subFolderResult = await downloadAllFilesInFolder(
-                    provider, item.id, userId, ip,
+                    e, item.id, userId, ip,
                     { recursive, batchSize }
                 );
 
@@ -538,7 +688,7 @@ export async function downloadAllFilesInFolder(
     // 処理の最後に、このフォルダのchildrenCacheCompletedAtを更新
     await ds.transaction(async (tm) => {
         const itemEntity = await tm.getRepository(BoxItemEntity).findOneBy({
-            userId, type: BoxItemType.FOLDER, itemId: folderId
+            tenantKey: e.tenantKey, userId, type: BoxItemType.FOLDER, itemId: folderId
         });
 
         if (itemEntity) {
@@ -553,9 +703,7 @@ export async function downloadAllFilesInFolder(
 }
 
 
-export async function boxDownloadCoreOnline(provider: string, fileId: string, userId: string, ip: string): Promise<{ fileBodyId: string, innerPath: string, fileName: string, sha1Digest: string, sha256Digest: string, fileSize: number, fileType: string, status: string }> {
-    const e = readOAuth2Env(provider);
-
+export async function boxDownloadCoreOnline(e: ExtApiClient, fileId: string, userId: string, ip: string): Promise<{ fileBodyId: string, innerPath: string, fileName: string, sha1Digest: string, sha256Digest: string, fileSize: number, fileType: string, status: string }> {
     if (!e.uriBase) {
         // return res.status(400).json({ error: 'Provider not found' });
         throw new Error('Provider not found');
@@ -590,7 +738,7 @@ export async function boxDownloadCoreOnline(provider: string, fileId: string, us
 
         // 2. fileId + versionIdの組み合わせでデータベースをチェック
         const existingBoxFile = await ds.getRepository(BoxFileEntity).findOne({
-            where: { fileId: boxFileId, versionId: versionId }
+            where: { tenantKey: e.tenantKey, fileId: boxFileId, versionId: versionId }
         });
 
         if (metaData.entries && metaData.entries.length > 0) {
@@ -599,6 +747,7 @@ export async function boxDownloadCoreOnline(provider: string, fileId: string, us
                 boxFile = existingBoxFile;
             } else {
                 boxFile = new BoxFileEntity();
+                boxFile.tenantKey = e.tenantKey;
                 boxFile.fileId = boxFileId;
                 boxFile.versionId = versionId;
                 boxFile.versionSha1 = infodata.file_version?.sha1;
@@ -649,6 +798,7 @@ export async function boxDownloadCoreOnline(provider: string, fileId: string, us
 
             // ファイル内容は既存のものを再利用し、BoxFileEntityだけ新規作成
             const newBoxFile = new BoxFileEntity();
+            newBoxFile.tenantKey = e.tenantKey;
             newBoxFile.fileId = boxFileId;
             newBoxFile.versionId = versionId;
             newBoxFile.versionSha1 = sha1FromMeta;
@@ -720,6 +870,7 @@ export async function boxDownloadCoreOnline(provider: string, fileId: string, us
 
         // 8. データベースエンティティを保存
         const fileBodyEntity = new BoxFileBodyEntity();
+        fileBodyEntity.tenantKey = e.tenantKey;
         fileBodyEntity.fileType = fileType;
         fileBodyEntity.fileSize = fileSize;
         fileBodyEntity.innerPath = innerPath; // カラム名が「innerPath」であることを前提
@@ -733,6 +884,7 @@ export async function boxDownloadCoreOnline(provider: string, fileId: string, us
         await ds.getRepository(BoxFileBodyEntity).save(fileBodyEntity);
 
         const boxFile = new BoxFileEntity();
+        boxFile.tenantKey = e.tenantKey;
         boxFile.fileId = boxFileId;
         boxFile.versionId = versionId;
         boxFile.versionSha1 = sha1Digest;
@@ -756,8 +908,7 @@ export async function boxDownloadCoreOnline(provider: string, fileId: string, us
 }
 
 
-export async function boxDownloadCore(provider: string, fileId: string, userId: string, ip: string): Promise<{ fileBodyId: string, innerPath: string, fileName: string, sha1Digest: string, sha256Digest: string, fileSize: number, fileType: string, status: string }> {
-    const e = readOAuth2Env(provider);
+export async function boxDownloadCore(e: ExtApiClient, fileId: string, userId: string, ip: string): Promise<{ fileBodyId: string, innerPath: string, fileName: string, sha1Digest: string, sha256Digest: string, fileSize: number, fileType: string, status: string }> {
 
     if (!e.uriBase) {
         // return res.status(400).json({ error: 'Provider not found' });
@@ -766,7 +917,7 @@ export async function boxDownloadCore(provider: string, fileId: string, userId: 
 
     // 2. fileId + versionIdの組み合わせでデータベースをチェック
     const existingBoxFileVersionless = await ds.getRepository(BoxFileEntity).findOne({
-        where: { fileId: fileId }
+        where: { tenantKey: e.tenantKey, fileId: fileId }
     });
 
     if (existingBoxFileVersionless) {
@@ -842,6 +993,7 @@ export async function boxDownloadCore(provider: string, fileId: string, userId: 
 
         if (metaData.entries && metaData.entries.length > 0) {
             const boxFile = new BoxFileEntity();
+            boxFile.tenantKey = e.tenantKey;
             boxFile.fileId = boxFileId;
             boxFile.versionId = versionId;
             boxFile.versionSha1 = infodata.file_version?.sha1;
@@ -876,7 +1028,7 @@ export async function boxDownloadCore(provider: string, fileId: string, userId: 
 
         // 2. fileId + versionIdの組み合わせでデータベースをチェック
         const existingBoxFile = await ds.getRepository(BoxFileEntity).findOne({
-            where: { fileId: boxFileId, versionId: versionId }
+            where: { tenantKey: e.tenantKey, fileId: boxFileId, versionId: versionId }
         });
 
         if (existingBoxFile) {
@@ -915,6 +1067,7 @@ export async function boxDownloadCore(provider: string, fileId: string, userId: 
 
             // ファイル内容は既存のものを再利用し、BoxFileEntityだけ新規作成
             const newBoxFile = new BoxFileEntity();
+            newBoxFile.tenantKey = e.tenantKey;
             newBoxFile.fileId = boxFileId;
             newBoxFile.versionId = versionId;
             newBoxFile.versionSha1 = sha1FromMeta;
@@ -939,6 +1092,7 @@ export async function boxDownloadCore(provider: string, fileId: string, userId: 
 
         if (infodata.size > 2_147_483_648) {
             const boxFile = new BoxFileEntity();
+            boxFile.tenantKey = e.tenantKey;
             boxFile.fileId = boxFileId;
             boxFile.versionId = versionId;
             boxFile.versionSha1 = sha1FromMeta;
@@ -1003,6 +1157,7 @@ export async function boxDownloadCore(provider: string, fileId: string, userId: 
 
         // 8. データベースエンティティを保存
         const fileBodyEntity = new BoxFileBodyEntity();
+        fileBodyEntity.tenantKey = e.tenantKey;
         fileBodyEntity.fileType = fileType;
         fileBodyEntity.fileSize = fileSize;
         fileBodyEntity.innerPath = innerPath; // カラム名が「innerPath」であることを前提
@@ -1016,6 +1171,7 @@ export async function boxDownloadCore(provider: string, fileId: string, userId: 
         await ds.getRepository(BoxFileBodyEntity).save(fileBodyEntity);
 
         const boxFile = new BoxFileEntity();
+        boxFile.tenantKey = e.tenantKey;
         boxFile.fileId = boxFileId;
         boxFile.versionId = versionId;
         boxFile.versionSha1 = sha1Digest;

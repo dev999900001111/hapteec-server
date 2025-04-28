@@ -1,22 +1,41 @@
+import os from 'os';
+import fs from 'fs/promises';
+import path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { randomUUID } from 'crypto';
+
 import { map, toArray } from 'rxjs';
 import TurndownService from 'turndown';
 // import * as cheerio from 'cheerio';
 import puppeteer from 'puppeteer';
+import { PuppeteerExtra } from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { AxiosInstance } from 'axios';
 
 import { MyToolType, OpenAIApiWrapper, providerPrediction } from '../../common/openai-api-wrapper.js';
 import { UserRequest } from '../models/info.js';
 import { ContentPartEntity, MessageEntity, MessageGroupEntity, PredictHistoryWrapperEntity } from '../entity/project-models.entity.js';
-import { OAuth2Env, readOAuth2Env } from '../controllers/auth.js';
+import { ExtApiClient, getExtApiClient } from '../controllers/auth.js';
 import { MessageArgsSet } from '../controllers/chat-by-project-model.js';
 import { Utils } from '../../common/utils.js';
 import { ds } from '../db.js';
 import { OAuthAccountEntity } from '../entity/auth.entity.js';
 import { getAxios, getProxyUrl } from '../../common/http-client.js';
 
-const turndownService = new TurndownService();
 
-async function fetchRenderedText(url: string): Promise<string> {
+const turndownService = new TurndownService();
+turndownService.remove(['script', 'style']); // 特定のHTML要素を削除
+
+// puppeteer-extraをインスタンス化
+const puppeteerExtra = new PuppeteerExtra(puppeteer);
+// StealthPluginを登録
+puppeteerExtra.use(StealthPlugin());
+
+// 待機用のヘルパー関数
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function fetchRenderedText(url: string, loadContentType: 'TEXT' | 'MARKDOWN' | 'HTML'): Promise<string> {
     // headless: "new"
     const args = ['--no-sandbox', '--disable-setuid-sandbox', '--ignore-certificate-errors'];
     let proxyUrl = '';
@@ -32,27 +51,120 @@ async function fetchRenderedText(url: string): Promise<string> {
         console.error('getProxyUrlError');
         console.error(err);
     }
-    const browser = await puppeteer.launch({
+
+    // ブラウザの起動オプションを設定
+    const browser = await puppeteerExtra.launch({
         headless: true,
         // ignoreHTTPSErrors: true,  // SSL証明書エラーを無視
         args,
     }); // ヘッドレスブラウザを起動
+
     console.log(`puppeteer ${proxyUrl ? 'proxy' : 'direct'} url=${url}`);
     const page = await browser.newPage();
-    // console.log(`fetch2 url=${url}`);
-    await page.goto(url, { waitUntil: 'networkidle2' }); // JSが実行されるまで待つ
 
-    // console.log('page loaded');
-    const text = await page.evaluate(() => {
-        // console.log('page evaluate');
-        // console.log(document.body.innerText);
-        return document.body.innerText; // ページの本文のテキストを取得
+    // ユーザーエージェントを設定（より実際のブラウザに近いものを使用）
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
+
+    // 追加の対策: WebDriverフラグを削除
+    await page.evaluateOnNewDocument(() => {
+        // WebDriverプロパティを削除
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined
+        });
+
+        // 追加のブラウザ指紋対策
+        // プラグインを模倣
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => [1, 2, 3, 4, 5],
+        });
+
+        // 言語設定を一般的なものに
+        Object.defineProperty(navigator, 'languages', {
+            get: () => ['en-US', 'en'],
+        });
     });
-    // console.log('text:', text);
 
+    // タイムアウトを長めに設定（Cloudflareのチャレンジに対応するため）
+    // page.setDefaultNavigationTimeout(60000); の代わりに
+    try {
+        // ページに移動し、ネットワークがアイドル状態になるまで待機
+        await page.goto(url, {
+            waitUntil: 'networkidle2',
+            timeout: 60000 // タイムアウトを60秒に設定
+        });
+
+        // Cloudflareの「お待ちください」画面に対応するための追加の待機
+        const cloudflareDetected = await page.evaluate(() => {
+            try {
+                return document.body.innerText.includes('Checking your browser') ||
+                    document.body.innerText.includes('Please wait') ||
+                    document.body.innerText.includes('Just a moment') ||
+                    document.body.innerText.includes('あなたが人間であることを確認');
+            } catch (error) {
+                return false;
+            }
+        });
+
+        if (cloudflareDetected) {
+            console.log('Cloudflare challenge detected, waiting...');
+            // waitForTimeoutの代わりにdelayを使用
+            await delay(10000);
+
+            // 追加：ページが完全に読み込まれるまで待機
+            await page.waitForFunction(() => {
+                try {
+                    return !document.body.innerText.includes('Checking your browser') &&
+                        !document.body.innerText.includes('Please wait') &&
+                        !document.body.innerText.includes('Just a moment') &&
+                        !document.body.innerText.includes('あなたが人間であることを確認');
+                } catch (error) {
+                    return false;
+                }
+            }, { timeout: 30000 }).catch(e => {
+                console.log('Still on Cloudflare page after waiting, continuing anyway...');
+            });
+        }
+
+        // ページのテキストを取得
+        let result: string;
+
+        // コンテンツの読み込みタイプを設定（デフォルトは'TEXT'）
+        ['TEXT', 'HTML', 'MARKDOWN'].includes((loadContentType || '').toUpperCase()) ? (loadContentType = loadContentType.toUpperCase() as any) : (loadContentType = 'TEXT');
+        if (loadContentType.toUpperCase() === 'TEXT') {
+            result = await page.evaluate(() => {
+                try {
+                    return document.body.innerText;
+                } catch (error) {
+                    console.error('Error while extracting text content:', error);
+                    return '';
+                }
+            });
+            result = result.trim();
+        } else {
+            const html = await page.evaluate(() => {
+                try {
+                    return document.documentElement.outerHTML;
+                } catch (error) {
+                    console.error('Error while extracting HTML content:', error);
+                    return '';
+                }
+            });
+            if (loadContentType.toUpperCase() === 'HTML') {
+                result = html;
+            } else {
+                result = turndownService.turndown(html);
+            }
+        }
+
+        await browser.close();
+        return result;
+    } catch (error) {
+        console.error('Error during page navigation or processing:', error);
     await browser.close();
-    return text.trim();
+        throw error;
 }
+}
+
 
 const aiModels = [
     { 'model': 'gemini-2.0-flash-001', 'description': 'gemini-1.5-flashの次世代モデル。前世代を上回る性能。' },
@@ -81,66 +193,73 @@ export function commonFunctionDefinitions(
                         type: 'object',
                         properties: {
                             query: { type: 'string', description: '検索クエリ' },
-                            num: { type: 'number', description: '検索結果の最大数', default: 10 },
-                            loadContent: { type: 'boolean', description: 'コンテンツを読み込むかどうか', default: false },
+                            num: { type: 'number', description: '検索結果の最大数', default: 30 },
+                            loadContentType: { type: 'string', description: `コンテンツの読込タイプ（'NONE'/'MARKDOWN'/'TEXT'）`, default: 'NONE' }, // HTML形式はバーストしがちなので消した。
                         },
                         required: ['query']
                     }
                 }
             },
-            handler: async (args: { query: string, num?: number, loadContent?: boolean }): Promise<{ title: string, link: string }[]> => {
-                const { query, num = 10, loadContent = false } = args;
+            handler: async (args: { query: string, num?: number, loadContentType?: 'NONE' | 'HTML' | 'MARKDOWN' | 'TEXT' }): Promise<{ title: string, link: string, snippet?: string, body?: string }[]> => {
+                const { query, num = 10, loadContentType = 'NONE' } = args;
                 const GOOGLE_CUSTOM_SEARCH_API_KEY = process.env.GOOGLE_CUSTOM_SEARCH_API_KEY || '';
                 const GOOGLE_CSE_ID = process.env.GOOGLE_CSE_ID || '';
-                const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(GOOGLE_CUSTOM_SEARCH_API_KEY)}&cx=${encodeURIComponent(GOOGLE_CSE_ID)}&q=${encodeURIComponent(query)}&num=${num}`;
+
+                // 10件ずつ分割してリクエストするための処理
+                const maxResultsPerRequest = 10; // Google APIの制限
+                const totalRequests = Math.min(Math.ceil(num / maxResultsPerRequest), 100); // 最大100リクエストまで
+                let allItems: any[] = [];
+
+                for (let i = 0; i < totalRequests; i++) {
+                    // 何件目から取得するか (1-indexed)
+                    const start = i * maxResultsPerRequest + 1;
+
+                    // 残りの取得件数が10件未満の場合は残り件数だけリクエスト
+                    const currentNum = Math.min(maxResultsPerRequest, num - (i * maxResultsPerRequest));
+
+                    if (currentNum <= 0) break; // 既に必要な件数を取得済みの場合
+
+                    const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(GOOGLE_CUSTOM_SEARCH_API_KEY)}&cx=${encodeURIComponent(GOOGLE_CSE_ID)}&q=${encodeURIComponent(query)}&num=${currentNum}&start=${start}`;
+                    console.log(`Google Custom Search API URL (${i + 1}/${totalRequests}): ${url}`);
+
+                    try {
                 const response = await (await getAxios(url)).get<CustomSearchResponse>(url);
                 const items = response.data.items || [];
+                        allItems = [...allItems, ...items];
 
-                if (!loadContent) {
-                    return items.map(item => ({ title: item.title, link: item.link }));
+                        // 検索結果が期待より少ない場合は早期終了
+                        if (!items.length || items.length < currentNum) {
+                            console.log(`Received fewer results than requested (${items.length}/${currentNum}). Stopping pagination.`);
+                            break;
+                        }
+                    } catch (error) {
+                        console.error(`Error fetching search results for batch ${i + 1}:`, error);
+                        break; // エラーが発生した場合はループを中断
+                    }
+                }
+
+                // 指定された件数に制限
+                allItems = allItems.slice(0, num);
+
+                if (loadContentType === 'NONE' || loadContentType.toUpperCase() === 'NONE') {
+                    return allItems.map(item => ({ title: item.title, snippet: item.snippet, link: item.link }));
                 } else {
-                    // console.dir(items);
-                    const res = await Promise.all(items.map(async item => {
+                    const res = await Promise.all(allItems.map(async item => {
                         try {
-                            const text = await fetchRenderedText(item.link);
+                            const text = await fetchRenderedText(item.link, loadContentType);
                             return { title: item.title, link: item.link, body: text };
                         } catch (e) {
                             console.log('fetchRenderedTextError');
                             console.error(e);
-                            return { title: item.title, link: item.link, body: response.data };
+                            return { title: item.title, link: item.link, body: "コンテンツの取得に失敗しました" };
                         }
-                        // const response = await axios.get(item.link);
-                        // if (response.headers['content-type'].includes('text/html')) {
-                        //     // const turndownService = new TurndownService();
-                        //     // try {
-                        //     //     const markdown = turndownService.turndown(response.data);
-                        //     //     console.log(markdown);
-                        //     //     const text = await fetchRenderedText(item.link);
-                        //     //     return { title: item.title, link: item.link, body: text };
-                        //     //     // // return { title: item.title, link: item.link, body: markdown };
-                        //     //     // const $ = cheerio.load(response.data);
-                        //     //     // const text = $('body').text().replace(/\s+/g, ' ').trim(); // 余計な空白を削除
-                        //     //     // return { title: item.title, link: item.link, body: text };
-                        //     // } catch (e) {
-                        //     //     return { title: item.title, link: item.link, body: response.data };
-                        //     // }
-                        // } else if (response.headers['content-type'].includes('application/json')) {
-                        //     return { title: item.title, link: item.link, body: response.data };
-                        // } else if (response.headers['content-type'].includes('application/pdf')) {
-                        //     return { title: item.title, link: item.link, body: response.data };
-                        // } else if (response.headers['content-type'].includes('application/msword')) {
-                        //     return { title: item.title, link: item.link, body: response.data };
-                        // } else {
-                        //     return { title: item.title, link: item.link, body: response.data };
-                        // }
                     }));
-                    // console.dir(res);
                     return res;
                 }
             },
         },
         {
-            info: { group: 'web', isActive: true, isInteractive: false, label: 'Webページを開く（複数可）。', },
+            info: { group: 'web', isActive: true, isInteractive: false, label: 'Webページを開く（複数可）', },
             definition: {
                 type: 'function', function: {
                     name: 'get_web_page_contents',
@@ -148,25 +267,200 @@ export function commonFunctionDefinitions(
                     parameters: {
                         type: 'object',
                         properties: {
+                            loadContentType: { type: 'string', description: `コンテンツの読込タイプ（'HTML'/'MARKDOWN'/'TEXT'）`, default: 'TEXT' },
                             urls: { type: 'array', description: 'URLの配列', items: { type: 'string' } },
                         },
                         required: ['urls']
                     }
                 }
             },
-            handler: async (args: { urls: string[] }): Promise<any> => {
-                const { urls } = args;
+            handler: async (args: { urls: string[], loadContentType: 'HTML' | 'MARKDOWN' | 'TEXT' }): Promise<any> => {
+                const { urls, loadContentType = 'TEXT' } = args;
                 const promises = urls.map(async url => {
                     // const response = await axios.get(url);
                     // return response.data;
-                    const text = await fetchRenderedText(url)
+                    const text = await fetchRenderedText(url, loadContentType)
                     return text;
                 });
                 return Promise.all(promises);
             },
         },
         {
-            info: { group: 'ai', isActive: false, isInteractive: true, label: '要約', },
+            // TODO ファイル出力とかもできるようにしたい。主に画像だけど。リンクをどっか経由で返しておけばいいカナ的な。
+            info: { group: 'command', isActive: true, isInteractive: false, label: 'Pythonコード実行', responseType: 'markdown' },
+            definition: {
+                type: 'function',
+                function: {
+                    name: 'run_python_code',
+                    description: 'Pythonコードを実行し、必要であればライブラリもインストールしてから実行する。',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            codeSet: {
+                                type: 'array',
+                                description: 'Pythonコードの配列。複数行のコードを実行する場合は、配列で渡すこと。',
+                                items: {
+                                    type: 'object',
+                                    properties: {
+                                        fullpath: { type: 'string', description: 'Pythonコードのフルパス', default: 'script.py' },
+                                        code: { type: 'string', description: '実行するPythonコード' },
+                                    },
+                                    required: ['code']
+                                }
+                            },
+                            entryPoint: { type: 'string', description: 'エントリーポイントのフルパス', default: 'script.py' },
+                            requirements: {
+                                type: 'array',
+                                description: '必要なPythonライブラリ（pip installする）',
+                                items: { type: 'string' },
+                                default: []
+                            },
+                            pythonVersion: { type: 'string', description: 'Pythonのバージョン', default: '3.11' },
+                        },
+                        required: ['codeSet']
+                    }
+                }
+            },
+            handler: async (args: { codeSet: { code: string, fullpath?: string }[], entryPoint?: string, requirements?: string[], pythonVersion?: string }): Promise<string> => {
+                const { codeSet, entryPoint = 'script.py', requirements = [], pythonVersion = '3.11' } = args;
+                const execAsync = promisify(exec);
+
+                // 一時ディレクトリのパス（tryブロックの外で定義）
+                const uniqueId = randomUUID();
+                const tmpDir = path.join(os.tmpdir(), `py-docker-${uniqueId}`);
+                const formatter = (obj: { stdout: string, stderr: string }) => {
+                    let stdoutType = 'text';
+                    if (obj.stdout.startsWith('<?xml version="1.0" encoding="utf-8" standalone="no"?>') && obj.stdout.includes('<svg')) {
+                        stdoutType = 'svg';
+                    } else { }
+                    return Utils.trimLines(`
+                        # stdout
+                        
+                        \`\`\`${stdoutType}
+                        ${obj.stdout}
+                        \`\`\`
+    
+                        # stderr
+                        \`\`\`text
+                        ${obj.stderr}
+                        \`\`\`
+                    `);
+                };
+
+                try {
+                    // プラットフォームの検出
+                    const isWindows = os.platform() === 'win32';
+
+                    // 一時ディレクトリの作成
+                    await fs.mkdir(tmpDir, { recursive: true });
+
+                    let isEntryPointExists = false;
+                    try {
+                        // Pythonスクリプトファイルの作成
+                        for (const codeObj of codeSet) {
+                            const { code, fullpath } = codeObj;
+                            isEntryPointExists = isEntryPointExists || (fullpath === entryPoint);
+                            const scriptPath = path.join(tmpDir, fullpath || 'script.py');
+                            // console.log(`Writing Python script to: ${scriptPath}`);
+                            // TODO インデント無視しちゃってるからダメだと思う。本当はmatplotのshowをオーバーライドしてしまうのが正攻法だとは思う。
+                            await fs.writeFile(scriptPath, code.replaceAll(/plt.show\(\)/g, Utils.trimLines(`
+                            # SVG形式でバイト列として保存
+                            from io import BytesIO
+                            buf = BytesIO()
+                            plt.savefig(buf, format='svg')
+                            buf.seek(0)
+
+                            # 標準出力に書き込み
+                            svg_content = buf.getvalue().decode('utf-8')
+                            # print(svg_content)
+
+                            # plt.show()の代わりに使用
+                            plt.close()
+                        `)));
+                        }
+                    } catch {
+                        return formatter({
+                            stdout: '',
+                            stderr: '入力引数の型が不正です。codeSetは配列で、各要素はオブジェクトである必要があります。',
+                        });
+                    }
+
+                    // エントリーポイントのフルパス
+                    const scriptPath = path.join(tmpDir, isEntryPointExists ? entryPoint : codeSet[0].fullpath || 'script.py');
+                    // console.log(`Entry point script path: ${scriptPath}`);
+
+                    // 必要に応じて、requirements.txtファイルも作成
+                    if (requirements.length > 0) {
+                        const requirementsPath = path.join(tmpDir, 'requirements.txt');
+                        // console.log(`Writing requirements to: ${requirementsPath}`);
+                        await fs.writeFile(requirementsPath, requirements.join('\n'));
+                    }
+
+                    let command = '';
+                    if (isWindows) {
+                        // console.log('Running on Windows');
+                        // Windows環境ではバッチファイルを使用
+                        const batchPath = path.join(tmpDir, 'run.bat');
+                        const batchContent = Utils.trimLines(`
+                            @echo off
+                            ${requirements.length > 0 ? `pip install -r "${path.join(tmpDir, 'requirements.txt')}" > nul 2>&1` : ''}
+                            set PYTHONPATH=%PYTHONPATH%;${tmpDir}
+                            python "${scriptPath}"
+                        `);
+                        // console.log(`Writing batch file to: ${batchPath}`);
+                        // console.log(batchContent);
+                        await fs.writeFile(batchPath, batchContent);
+
+                        // バッチファイルを実行
+                        command = `cmd /c "${batchPath}"`;
+                    } else {
+                        // Linux環境ではDockerを使用
+                        const shellScriptPath = path.join(tmpDir, 'run.sh');
+                        const shellScriptContent = Utils.trimLines(`
+                            #!/bin/bash
+                            set -e
+                            ${requirements.length > 0 ? 'pip install -r /app/requirements.txt > /dev/null' : ''}
+                            python /app/script.py
+                        `);
+                        await fs.writeFile(shellScriptPath, shellScriptContent);
+                        await execAsync(`chmod +x "${shellScriptPath}"`);
+
+                        // Dockerでコンテナを実行
+                        command = `docker run --rm -v "${tmpDir}:/app" python:${pythonVersion}-slim /app/run.sh`;
+                    }
+                    // console.log(`Executing command: ${command}`);
+                    // console.log(`Python version: ${pythonVersion}`);
+                    // console.log(`Requirements: ${requirements.join(', ')}`);
+                    // console.log(`Script path: ${scriptPath}`);
+                    // console.log(`Entry point: ${entryPoint}`);
+                    // console.log(`Requirements path: ${path.join(tmpDir, 'requirements.txt')}`);
+                    // console.log(`Code:\n${codeSet.map(codeObj => codeObj.code).join('\n')}`);
+                    // console.log(`Command: ${command}`);
+
+                    // コマンドを実行
+                    const result = await execAsync(command, { cwd: tmpDir });
+                    return formatter(result);
+                } catch (error: any) {
+                    console.error('Error executing Python code:', error);
+                    // エラーが発生した場合、標準出力と標準エラーを返す
+                    // console.error('stdout:', error.stdout);
+                    return formatter({
+                        stdout: error.stdout || '',
+                        stderr: error.stderr || error.message || '実行時にエラーが発生しました',
+                    });
+                } finally {
+                    // console.log(`Cleaning up temporary directory: ${tmpDir}`);
+                    // 終了後に一時ディレクトリを削除
+                    try {
+                        // await fs.rm(tmpDir, { recursive: true, force: true });
+                    } catch (err) {
+                        console.error('一時ディレクトリの削除に失敗しました', err);
+                    }
+                }
+            }
+        },
+        {
+            info: { group: 'command', isActive: false, isInteractive: true, label: '要約', },
             definition: {
                 type: 'function', function: {
                     name: 'summarize_text',
@@ -185,7 +479,7 @@ export function commonFunctionDefinitions(
             },
         },
         {
-            info: { group: 'ai', isActive: false, isInteractive: true, label: 'AI呼び出し', },
+            info: { group: 'command', isActive: false, isInteractive: true, label: 'AI呼び出し', },
             definition: {
                 type: 'function', function: {
                     name: 'call_ai',
@@ -224,6 +518,7 @@ export function commonFunctionDefinitions(
                 const newLabel = `${label}-call_ai-${model}`;
                 // レスポンス返した後にゆるりとヒストリーを更新しておく。
                 const history = new PredictHistoryWrapperEntity();
+                history.tenantKey = req.info.user.tenantKey;
                 history.connectionId = connectionId;
                 history.streamId = streamId;
                 history.messageId = message.id;
@@ -346,8 +641,8 @@ export interface ElasticsearchResponse {
 }
 
 
-export async function getOAuthAccountForTool(req: UserRequest, provider: string): Promise<{ e: OAuth2Env, oAuthAccount: OAuthAccountEntity, axiosWithAuth: AxiosInstance }> {
-    const e = readOAuth2Env(provider);
+export async function getOAuthAccountForTool(req: UserRequest, provider: string): Promise<{ e: ExtApiClient, oAuthAccount: OAuthAccountEntity, axiosWithAuth: AxiosInstance }> {
+    const e = await getExtApiClient(req.info.user.tenantKey, provider);
     const user_id = req.info.user.id;
     if (!user_id) {
         throw new Error('User ID is required.');

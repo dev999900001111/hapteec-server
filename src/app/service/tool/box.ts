@@ -17,10 +17,11 @@ import { convertPptxToPdf } from '../../common/media-funcs.js';
 
 // 1. 関数マッピングの作成
 export async function boxFunctionDefinitions(
+    providerName: string,
     obj: { inDto: MessageArgsSet; messageSet: { messageGroup: MessageGroupEntity; message: MessageEntity; contentParts: ContentPartEntity[]; }; },
     req: UserRequest, aiApi: OpenAIApiWrapper, connectionId: string, streamId: string, message: MessageEntity, label: string,
 ): Promise<MyToolType[]> {
-    const provider = 'box';
+    const provider = `box-${providerName}`;
     return [
         // Box コンテンツ取得 API
         {
@@ -28,7 +29,7 @@ export async function boxFunctionDefinitions(
             definition: {
                 type: 'function',
                 function: {
-                    name: 'box_ai_content',
+                    name: `box_${providerName}_ai_content`,
                     description: `指定されたファイルIDに基づいてBOX-AIに問い合わせる`,
                     parameters: {
                         type: 'object',
@@ -56,7 +57,8 @@ export async function boxFunctionDefinitions(
                 }
             },
             handler: async (args: { file_id: string, userPrompt?: string, }): Promise<any> => {
-                const boxFile = await boxDownloadCore(provider, args.file_id, req.info.user.id, req.info.ip);
+                const { e } = await getOAuthAccountForTool(req, provider);
+                const boxFile = await boxDownloadCore(e, args.file_id, req.info.user.id, req.info.ip);
                 const boxFileBody = await ds.getRepository(BoxFileBodyEntity).findOneOrFail({
                     where: { sha256: boxFile.sha256Digest },
                 });
@@ -147,6 +149,7 @@ export async function boxFunctionDefinitions(
                 const newLabel = `${label}-call_ai-${model}`;
                 // レスポンス返した後にゆるりとヒストリーを更新しておく。
                 const history = new PredictHistoryWrapperEntity();
+                history.tenantKey = req.info.user.tenantKey;
                 history.connectionId = connectionId;
                 history.streamId = streamId;
                 history.messageId = message.id;
@@ -272,7 +275,7 @@ export async function boxFunctionDefinitions(
             definition: {
                 type: 'function',
                 function: {
-                    name: 'box_search',
+                    name: `box_${providerName}_search`,
                     description: `ユーザーのコンテンツまたは会社全体でファイル、フォルダ、ウェブリンク、および共有ファイルを検索します。`,
                     parameters: {
                         type: 'object',
@@ -361,7 +364,7 @@ export async function boxFunctionDefinitions(
                 offset?: number,
                 trash_content?: string
             }): Promise<any> => {
-                const { e, oAuthAccount, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
+                const { e, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
                 // クエリパラメータの構築
                 const params = new URLSearchParams();
                 params.append('query', args.query);
@@ -417,13 +420,13 @@ export async function boxFunctionDefinitions(
             info: { group: provider, isActive: true, isInteractive: false, label: `box：自分のユーザー情報`, },
             definition: {
                 type: 'function', function: {
-                    name: 'box_user_info',
+                    name: `box_${providerName}user_info`,
                     description: `box：自分のユーザー情報`,
                     parameters: { type: 'object', properties: {}, }
                 }
             },
-            handler: async (args: { target: string }): Promise<any> => {
-                const { e, oAuthAccount, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
+            handler: async (args: {}): Promise<any> => {
+                const { e, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
                 let url;
                 url = `${e.uriBase}${e.pathUserInfo}`;
                 const result = (await axiosWithAuth.get(url)).data;

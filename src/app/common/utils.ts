@@ -996,8 +996,23 @@ export class Utils {
         }
         return errorObject;
     }
+
+    static requiredEnvVarsCheck(requiredEnvVars: { [key: string]: string }): void {
+        const missingVars = Object.entries(requiredEnvVars).filter(([_, value]) => !value).map(([key]) => key);
+        if (missingVars.length > 0) {
+            console.error(`環境変数が足りません: ${missingVars.join(', ')}`);
+            throw new Error('環境変数が不足しています');
+        } else { }
+    }
 }
 
+/**
+ * TypeScriptの型を部分的にオプショナルにするユーティリティ型
+ * @template T - オブジェクトの型
+ * @template K - オプショナルにするプロパティのキーの型
+ * @returns - オプショナルにしたオブジェクトの型
+ */
+export type MakeOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
 
 class RequestLimiter {
     private activeRequests: number = 0;

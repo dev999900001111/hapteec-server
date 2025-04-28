@@ -8,17 +8,17 @@ import { ds } from "../db.js";
 import { getOAuthAccountForTool, reform } from "./common.js";
 
 // 1. 関数マッピングの作成
-export async function gitlabFunctionDefinitions(providerSubName: string,
+export async function gitlabFunctionDefinitions(providerName: string,
     obj: { inDto: MessageArgsSet; messageSet: { messageGroup: MessageGroupEntity; message: MessageEntity; contentParts: ContentPartEntity[]; }; },
     req: UserRequest, aiApi: OpenAIApiWrapper, connectionId: string, streamId: string, message: MessageEntity, label: string,
 ): Promise<MyToolType[]> {
-    const provider = `gitlab-${providerSubName}`;
+    const provider = `gitlab-${providerName}`;
     return [
         {
             info: { group: provider, isActive: true, isInteractive: false, label: `汎用検索`, },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_search`,
+                    name: `gitlab_${providerName}_search`,
                     description: `GitLabでの汎用的な検索`,
                     parameters: {
                         type: 'object',
@@ -71,7 +71,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `プロジェクト一覧取得`, },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_projects`,
+                    name: `gitlab_${providerName}_projects`,
                     description: `GitLabのプロジェクト一覧を取得`,
                     parameters: {
                         type: 'object',
@@ -111,7 +111,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
                 }
             },
             handler: async (args: { membership: boolean, per_page: number, page: number, order_by: string, sort: string }): Promise<any> => {
-                const { e, oAuthAccount, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
+                const { e, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
                 let { per_page, page, membership, order_by, sort } = args;
                 per_page = Math.max(Math.min(per_page || 20, 100), 1); // 1以上100以下
                 page = Math.max(page || 1, 1); // 1以上
@@ -132,7 +132,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `リポジトリのコミット履歴`, responseType: 'markdown' },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_repository_commits`,
+                    name: `gitlab_${providerName}_repository_commits`,
                     description: `指定したプロジェクトのコミット履歴を取得`,
                     parameters: {
                         type: 'object',
@@ -168,7 +168,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
                 }
             },
             handler: async (args: { project_id: number, ref_name?: string, path?: string, per_page?: number, page?: number }): Promise<any> => {
-                const { e, oAuthAccount, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
+                const { e, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
                 const { project_id, ref_name, path = '', per_page = 20, page = 1 } = args;
                 const queryMap = {} as { [key: string]: string };
                 if (path) queryMap.path = path;
@@ -218,7 +218,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `リポジトリのブランチ/タグ一覧`, },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_repository_refs`,
+                    name: `gitlab_${providerName}_repository_refs`,
                     description: `指定したプロジェクトのブランチまたはタグ一覧を取得`,
                     parameters: {
                         type: 'object',
@@ -247,7 +247,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
                 }
             },
             handler: async (args: { project_id: number, ref_type: string, search?: string, regex?: string }): Promise<any> => {
-                const { e, oAuthAccount, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
+                const { e, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
                 const { project_id, ref_type = 'branches', search, regex, } = args;
 
                 const queryMap = {} as { [key: string]: string };
@@ -268,7 +268,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `コミット間の差分を取得`, responseType: 'markdown' },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_repository_compare`,
+                    name: `gitlab_${providerName}_repository_compare`,
                     description: `指定したプロジェクトの2つのコミット（ブランチやタグ）間の差分を取得`,
                     parameters: {
                         type: 'object',
@@ -296,7 +296,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
                 }
             },
             handler: async (args: { project_id: number, from: string, to: string, straight: boolean }): Promise<any> => {
-                const { e, oAuthAccount, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
+                const { e, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
                 const { project_id, from, to, straight = true } = args;
 
                 const url = `${e.uriBase}/api/v4/projects/${project_id}/repository/compare?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&straight=${straight}`;
@@ -328,7 +328,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `特定コミットの詳細`, },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_repository_commit`,
+                    name: `gitlab_${providerName}_repository_commit`,
                     description: `指定したプロジェクトの特定のコミット詳細と変更内容を取得`,
                     parameters: {
                         type: 'object',
@@ -352,7 +352,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
                 }
             },
             handler: async (args: { project_id: number, commit_id: string, stats: boolean }): Promise<any> => {
-                const { e, oAuthAccount, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
+                const { e, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
                 const { project_id, commit_id, stats = true } = args;
 
                 // Get commit details
@@ -386,7 +386,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
         //     info: { group: provider, isActive: true, isInteractive: false, label: `リポジトリ全ファイル一覧を取得`, },
         //     definition: {
         //         type: 'function', function: {
-        //             name: `gitlab_${providerSubName}_repository_all_files`,
+        //             name: `gitlab_${providerName}_repository_all_files`,
         //             description: `指定したリポジトリの全ファイルの一覧を取得`,
         //             parameters: {
         //                 type: 'object',
@@ -459,7 +459,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `プロジェクトの課題一覧`, },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_project_issues`,
+                    name: `gitlab_${providerName}_project_issues`,
                     description: `指定したプロジェクトの課題（Issue）一覧を取得`,
                     parameters: {
                         type: 'object',
@@ -493,7 +493,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
                 }
             },
             handler: async (args: { project_id: number, state: string, per_page: number, page: number }): Promise<any> => {
-                const { e, oAuthAccount, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
+                const { e, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
                 let { project_id, state, per_page, page } = args;
                 per_page = Math.max(Math.min(per_page || 20, 100), 1); // 1以上100以下
                 page = Math.max(page || 1, 1); // 1以上
@@ -512,7 +512,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `プロジェクトのマージリクエスト一覧`, },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_project_merge_requests`,
+                    name: `gitlab_${providerName}_project_merge_requests`,
                     description: `指定したプロジェクトのマージリクエスト一覧を取得`,
                     parameters: {
                         type: 'object',
@@ -546,7 +546,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
                 }
             },
             handler: async (args: { project_id: number, state: string, per_page: number, page: number }): Promise<any> => {
-                const { e, oAuthAccount, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
+                const { e, axiosWithAuth } = await getOAuthAccountForTool(req, provider);
                 let { project_id, state, per_page, page } = args;
                 per_page = Math.max(Math.min(per_page || 20, 100), 1); // 1以上100以下
                 page = Math.max(page || 1, 1); // 1以上
@@ -562,11 +562,11 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             }
         },
         {
-            info: { group: provider, isActive: true, isInteractive: false, label: `gitlab-${providerSubName}：自分のユーザー情報`, },
+            info: { group: provider, isActive: true, isInteractive: false, label: `gitlab-${providerName}：自分のユーザー情報`, },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_user_info`,
-                    description: `gitlab-${providerSubName}：自分のユーザー情報`,
+                    name: `gitlab_${providerName}_user_info`,
+                    description: `gitlab-${providerName}：自分のユーザー情報`,
                     parameters: { type: 'object', properties: {}, }
                 }
             },
@@ -585,7 +585,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `リポジトリファイル内容取得`, responseType: 'markdown' },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_file_content`,
+                    name: `gitlab_${providerName}_file_content`,
                     description: `指定したプロジェクトのリポジトリからファイル内容を取得`,
                     parameters: {
                         type: 'object',
@@ -650,7 +650,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `リポジトリファイル内容取得`, responseType: 'markdown' },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_file_content`,
+                    name: `gitlab_${providerName}_file_content`,
                     description: `指定したプロジェクトのリポジトリからファイル内容を取得`,
                     parameters: {
                         type: 'object',
@@ -732,6 +732,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
                     const newLabel = `${label}-call_ai-${inDto.args.model}`;
                     // レスポンス返した後にゆるりとヒストリーを更新しておく。
                     const history = new PredictHistoryWrapperEntity();
+                    history.tenantKey = req.info.user.tenantKey;
                     history.connectionId = connectionId;
                     history.streamId = streamId;
                     history.messageId = message.id;
@@ -772,7 +773,7 @@ export async function gitlabFunctionDefinitions(providerSubName: string,
             info: { group: provider, isActive: true, isInteractive: false, label: `リポジトリファイル一覧取得（ls風）`, responseType: 'markdown' },
             definition: {
                 type: 'function', function: {
-                    name: `gitlab_${providerSubName}_repository_tree`,
+                    name: `gitlab_${providerName}_repository_tree`,
                     description: `指定したプロジェクトのリポジトリ内のファイルとディレクトリ一覧をls形式で取得`,
                     parameters: {
                         type: 'object',

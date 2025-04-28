@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { body, param } from "express-validator";
 import { OAuthUserRequest } from "../models/info.js";
 import { ds } from '../db.js';
-import { readOAuth2Env } from '../controllers/auth.js';
+import { ExtApiClient, getExtApiClient } from '../controllers/auth.js';
 import { GitLabProject } from './gitlab-api-types.js';
 import { ProjectEntity, TeamMemberEntity } from '../entity/project-models.entity.js';
 import { FileGroupType, ProjectVisibility, } from '../models/values.js';
@@ -11,7 +11,7 @@ import { copyFromFirst, gitFetchCommitId } from './git-core.js';
 import { getAxios } from '../../common/http-client.js';
 
 export const fetchCommit = [
-    param('provider').isString().notEmpty(),
+    param('providerName').isString().notEmpty(),
     param('gitlabProjectId').isNumeric().notEmpty(),
     param('refType').isIn(['branches', 'tags', 'commits']).optional(),
     // param('refId').isString().optional(),
@@ -19,28 +19,33 @@ export const fetchCommit = [
     async (_req: Request, res: Response) => {
         try {
             const req = _req as OAuthUserRequest;
-            const { provider, gitlabProjectId, refType } = req.params as { provider: string, gitlabProjectId: string, refType?: 'branches' | 'tags' | 'commits' };
+            const { providerName, gitlabProjectId, refType } = req.params as { providerName: string, gitlabProjectId: string, refType?: 'branches' | 'tags' | 'commits' };
             const { projectId } = req.body as { projectId: string };
+            const provider = `gitlab-${providerName}`;
 
             const refId = req.params[0] as string | undefined;
 
-            const project = await ds.getRepository(ProjectEntity).findOne({ where: { id: projectId } });
+            const project = await ds.getRepository(ProjectEntity).findOne({ where: { tenantKey: req.info.user.tenantKey, id: projectId } });
             if (!project) {
-                return { status: 404, message: '指定されたプロジェクトが見つかりません' };
+                res.status(404).json({ message: '指定されたプロジェクトが見つかりません' });
+                return;
             }
 
             const teamMember = await ds.getRepository(TeamMemberEntity).findOne({
-                where: { userId: req.info.user.id, teamId: project.teamId }
+                where: { tenantKey: req.info.user.tenantKey, userId: req.info.user.id, teamId: project.teamId }
             });
 
             if (project.visibility !== ProjectVisibility.Public && project.visibility !== ProjectVisibility.Login && !teamMember) {
-                return { status: 403, message: 'このプロジェクトにファイルをアップロードする権限がありません' };
+                res.status(403).json({ message: 'このプロジェクトにファイルをアップロードする権限がありません' });
+                return;
             }
 
-            const e = readOAuth2Env(provider);
-            if (e.uriBase) {
-            } else {
-                return res.status(400).json({ error: 'Provider not found' });
+            const e = {} as ExtApiClient;
+            try {
+                Object.assign(e, await getExtApiClient(req.info.user.tenantKey, provider));
+            } catch (error) {
+                res.status(401).json({ error: `${provider}は認証されていません。` });
+                return;
             }
             const _axios = await getAxios(e.uriBase);
 
@@ -76,16 +81,16 @@ export const fetchCommit = [
             };
 
             let gitProjectCommit = await ds.getRepository(GitProjectCommitEntity).findOne({
-                where: { provider, gitProjectId: Number(gitlabProjectId), commitId }
+                where: { tenantKey: req.info.user.tenantKey, provider, gitProjectId: Number(gitlabProjectId), commitId }
             })
 
             let fileGroup;
 
             if (gitProjectCommit) {
                 // 既に同じコミットをダウンロード済みの場合
-                fileGroup = await copyFromFirst(gitProjectCommit.fileGroupId, project, req.info.user.id, req.info.ip);
+                fileGroup = await copyFromFirst(gitProjectCommit.fileGroupId, project, req.info.user.tenantKey, req.info.user.id, req.info.ip);
             } else {
-                const object = await gitFetchCommitId(req.info.user.id, req.info.ip, projectId, FileGroupType.GITLAB, gitlabProject.name, provider, { provider, projectId: gitlabProjectId, refType, refId, commitId }, Number(gitlabProjectId), e.uriBase, gitlabProject.http_url_to_repo, gitlabProject.path_with_namespace, username, accessToken, commitId);
+                const object = await gitFetchCommitId(req.info.user.tenantKey, req.info.user.id, req.info.ip, projectId, FileGroupType.GITLAB, gitlabProject.name, provider, { provider, projectId: gitlabProjectId, refType, refId, commitId }, Number(gitlabProjectId), e.uriBase, gitlabProject.http_url_to_repo, gitlabProject.path_with_namespace, username, accessToken, commitId);
                 gitProjectCommit = object.gitProjectCommit;
                 fileGroup = object.fileGroup;
             }

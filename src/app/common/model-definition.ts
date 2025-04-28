@@ -3,13 +3,16 @@ import { TiktokenModel } from "tiktoken/tiktoken";
 export const VISION_MODELS = [
     'gpt-4o-mini', 'gpt-4o-2024-07-18', 'gpt-4o', 'gpt-4o-2024-05-13', 'gpt-4-turbo', 'gpt-4-turbo-2024-04-09', 'gpt-4-turbo-preview', 'gpt-4-vision-preview',
     'gemini-2.0-flash-exp', 'gemini-exp-1206', 'gemini-2.0-flash-thinking-exp-1219', 'gemini-2.0-flash-thinking-exp-01-21', 'gemini-2.0-flash-thinking-exp',
+    'gemini-2.5-pro-exp-03-25', 'gemini-2.5-pro-preview-03-25', 'gemini-2.5-flash-preview-04-17', 'gemini-2.5-flash-thinking-preview-04-17',
     'gemini-1.5-flash-001', 'gemini-1.5-pro-001', 'gemini-1.5-flash-002', 'gemini-1.5-pro-002', 'gemini-1.0-pro-vision-001', 'gemini-1.5-flash', 'gemini-1.5-pro',
     'gemini-flash-experimental', 'gemini-pro-experimental', 'gemini-1.0-pro-vision',
     'claude-3-haiku-20240307', 'claude-3-5-sonnet-20240229', 'claude-3-opus-20240229',
     'claude-3-5-sonnet-20240620', 'claude-3-5-sonnet-20241022', 'claude-3-5-sonnet@20240620', 'claude-3-5-sonnet-v2@20241022',
-    'o1-preview', 'o1', 'o1-pro', 'o3-mini',
-    'gemini-2.0-flash-001', 'gemini-2.0-pro-exp-02-05', 'gemini-2.0-flash-lite-preview-02-05',
+    'o1-preview', 'o1', 'o1-pro', 'o3-mini', 'o4-mini', 'o3',
+    'gemini-2.0-flash-001', 'gemini-2.0-pro-exp-02-05', 'gemini-2.0-flash-lite-preview-02-05', 'gemini-2.0-flash-lite-001',
     'claude-3-7-sonnet', 'claude-3-7-sonnet@20250219', 'claude-3-7-sonnet-thinking@20250219',
+    'command-a-03-2025', 'command-r', 'command-r-plus', 'c4ai-aya-expanse-32b', 'c4ai-aya-expanse-8b', 'c4ai-aya-vision-32b', 'c4ai-aya-vision-8b',
+    'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
 ];
 export const JSON_MODELS = ['gpt-4o-mini', 'gpt-4o-2024-07-18', 'gpt-4o', 'gpt-4o-2024-05-13', 'gpt-4-turbo', 'gpt-4-turbo-2024-04-09', 'gpt-4-turbo-preview', 'gpt-4-1106-preview', 'gpt-4-0125-preview', 'gpt-3.5-turbo', 'gpt-3.5-turbo-1106'];
 export const GPT4_MODELS = ['gpt-4o-mini', 'gpt-4o-2024-07-18', 'gpt-4o', 'gpt-4o-2024-05-13', 'gpt-4-turbo', 'gpt-4-turbo-2024-04-09', 'gpt-4-turbo-preview', 'gpt-4-1106-preview', 'gpt-4-0125-preview'];
@@ -34,6 +37,7 @@ const azureDeployTpmMap: Record<string, number> = {
 // export type GPTModels = 'gpt-4' | 'gpt-4-0314' | 'gpt-4-0613' | 'gpt-4-32k' | 'gpt-4-32k-0314' | 'gpt-4-32k-0613' | 'gpt-4-turbo-preview' | 'gpt-4-1106-preview' | 'gpt-4-0125-preview' | 'gpt-4-vision-preview' | 'gpt-3.5-turbo' | 'gpt-3.5-turbo-0301' | 'gpt-3.5-turbo-0613' | 'gpt-3.5-turbo-16k' | 'gpt-3.5-turbo-16k-0613';
 export type GPTModels = TiktokenModel
     | 'gpt-4o-2024-05-13' | 'gpt-4o' | 'gpt-4o-mini-2024-07-18' | 'gpt-4o-mini' | 'o1-preview' | 'o1' | 'o1-pro' | 'o3-mini' | 'gemini-2.0-flash-001' | 'gemini-2.0-pro-exp-02-05' | 'gemini-2.0-flash-lite-preview-02-05'
+    | 'gemini-2.5-pro-exp-03-25' | 'gemini-2.0-flash-lite-001' | 'gemini-2.5-pro-preview-03-25' | 'gemini-2.5-flash-preview-04-17' | 'gemini-2.5-flash-thinking-preview-04-17'
     | 'llama2-70b-4096' | 'meta/llama3-405b-instruct-maas'
     | 'gemini-1.5-flash-001' | 'gemini-1.5-pro-001' | 'gemini-1.5-flash-002' | 'gemini-1.5-pro-002' | 'gemini-1.0-pro-001' | 'gemini-1.0-pro-vision-001'
     | 'gemini-1.5-flash' | 'gemini-1.5-pro' | 'gemini-1.0-pro' | 'gemini-1.0-pro-vision'
@@ -41,9 +45,12 @@ export type GPTModels = TiktokenModel
     | 'mixtral-8x7b-32768' | 'open-mistral-7b' | 'mistral-tiny-2312' | 'mistral-tiny' | 'open-mixtral-8x7b'
     | 'mistral-small-2312' | 'mistral-small' | 'mistral-small-2402' | 'mistral-small-latest' | 'mistral-medium-latest' | 'mistral-medium-2312' | 'mistral-medium' | 'mistral-large-latest' | 'mistral-large-2402' | 'mistral-embed'
     | 'claude-instant-1.2' | 'claude-2' | 'claude-2.1' | 'claude-3-haiku-20240307' | 'claude-3-5-sonnet-20240229' | 'claude-3-opus-20240229' | 'claude-3-5-sonnet-20240620' | 'claude-3-5-sonnet-20241022' | 'claude-3-5-sonnet@20240620' | 'claude-3-5-sonnet-v2@20241022' | 'claude-3-7-sonnet-20250219' | 'claude-3-7-sonnet-thinking-20250219' | 'claude-3-7-sonnet' | 'claude-3-7-sonnet-thinking@20250219'
-    | 'deepseek-coder' | 'deepseek-chat';
+    | 'deepseek-coder' | 'deepseek-chat'
+    | 'command-a-03-2025' | 'command-r' | 'command-r-plus' | 'c4ai-aya-expanse-32b' | 'c4ai-aya-expanse-8b' | 'c4ai-aya-vision-32b' | 'c4ai-aya-vision-8b'
+    | 'o4-mini' | 'o3' | 'gpt-4.1' | 'gpt-4.1-mini' | 'gpt-4.1-nano'
+    ;
 
-export type AiProvider = 'openai' | 'azure' | 'groq' | 'mistral' | 'anthropic' | 'deepseek' | 'local' | 'vertexai' | 'anthropic_vertexai' | 'openapi_vertexai' | 'cerebras';
+export type AiProvider = 'openai' | 'azure' | 'groq' | 'mistral' | 'anthropic' | 'deepseek' | 'local' | 'vertexai' | 'anthropic_vertexai' | 'openapi_vertexai' | 'cerebras' | 'cohere' | 'gemini';
 
 // モデル名とコストの対応表
 export const COST_TABLE: { [key: string]: { prompt: number, completion: number } } = {
@@ -56,10 +63,15 @@ export const COST_TABLE: { [key: string]: { prompt: number, completion: number }
     'gpt4-128': { prompt: 0.01000000, completion: 0.030000, },
     'gpt4-o  ': { prompt: 0.00500000, completion: 0.015000, },
     'gpt4-om ': { prompt: 0.00015000, completion: 0.000600, },
+    'gpt4.1  ': { prompt: 0.00200000, completion: 0.008000, },
+    'gpt4.1m ': { prompt: 0.00040000, completion: 0.001600, },
+    'gpt4.1n ': { prompt: 0.00010000, completion: 0.000400, },
     'o1      ': { prompt: 0.01650000, completion: 0.066000, },
     'o1-pre  ': { prompt: 0.01650000, completion: 0.066000, },
     'o1-pro  ': { prompt: 0.15000000, completion: 0.600000, },
     'o3-mini ': { prompt: 0.00110000, completion: 0.004400, },
+    'o3      ': { prompt: 0.01000000, completion: 0.040000, },
+    'o4-mini ': { prompt: 0.00110000, completion: 0.004400, },
     'cla-1.2 ': { prompt: 0.00800000, completion: 0.024000, },
     'cla-2   ': { prompt: 0.00800000, completion: 0.024000, },
     'cla-2.1 ': { prompt: 0.00800000, completion: 0.024000, },
@@ -87,10 +99,13 @@ export const COST_TABLE: { [key: string]: { prompt: number, completion: number }
     'gem-15p2': { prompt: 0.00031250, completion: 0.001250, },
     'gem-10pr': { prompt: 0.00012500, completion: 0.000250, },
     'gem-10pv': { prompt: 0.00012500, completion: 0.000125, },
-    'gem-20fx': { prompt: 0.00001875, completion: 0.000075, },
-    'gem-20f1': { prompt: 0.00003750, completion: 0.000150, },
-    'gem-20px': { prompt: 0.00031250, completion: 0.001250, },
-    'gem-20lp': { prompt: 0.00001875, completion: 0.000075, },
+    'gem-20fx': { prompt: 0.00015000, completion: 0.000600, },
+    'gem-20f1': { prompt: 0.00015000, completion: 0.000600, },
+    'gem-20px': { prompt: 0.00000000, completion: 0.000000, },
+    'gem-25px': { prompt: 0.00000000, completion: 0.000000, },
+    'gem-25pp': { prompt: 0.00125000, completion: 0.010000, },
+    'gem-25fl': { prompt: 0.00015000, completion: 0.000600, },
+    'gem-20lp': { prompt: 0.00007500, completion: 0.000300, },
     'gem-ex12': { prompt: 0.00012500, completion: 0.000125, },
     'vla31-40': { prompt: 0.00010000, completion: 0.000100, },
     'g-l70-sd': { prompt: 0.00000000, completion: 0.000000, },
@@ -99,6 +114,13 @@ export const COST_TABLE: { [key: string]: { prompt: number, completion: number }
     'g-r1-q32': { prompt: 0.00000000, completion: 0.000000, },
     'c-l31l8 ': { prompt: 0.00000000, completion: 0.000000, },
     'c-l33l70': { prompt: 0.00000000, completion: 0.000000, },
+    'com-a   ': { prompt: 0.00000000, completion: 0.000000, },
+    'com-r   ': { prompt: 0.00000000, completion: 0.000000, },
+    'com-rp  ': { prompt: 0.00000000, completion: 0.000000, },
+    'aya-e32 ': { prompt: 0.00000000, completion: 0.000000, },
+    'aya-e8  ': { prompt: 0.00000000, completion: 0.000000, },
+    'aya-v32 ': { prompt: 0.00000000, completion: 0.000000, },
+    'aya-v8  ': { prompt: 0.00000000, completion: 0.000000, },
 };
 
 export const SHORT_NAME: { [key: string]: string } = {
@@ -133,6 +155,9 @@ export const SHORT_NAME: { [key: string]: string } = {
     // 'code-search-ada-code-001': 'unused',
     // 'gpt2': 'unused',
     'gpt-4': 'gpt4    ',
+    'gpt-4.1': 'gpt4.1  ',
+    'gpt-4.1-mini': 'gpt4.1m ',
+    'gpt-4.1-nano': 'gpt4.1n ',
     'gpt-4-0314': 'gpt4    ',
     'gpt-4-0613': 'gpt4    ',
     'gpt-4-32k': 'gpt4-32k',
@@ -148,6 +173,8 @@ export const SHORT_NAME: { [key: string]: string } = {
     'o1': 'o1      ',
     'o1-preview': 'o1-pre  ',
     'o3-mini': 'o3-mini ',
+    'o3': 'o3      ',
+    'o4-mini': 'o4-mini ',
     'gpt-4o-2024-05-13': 'gpt4-o  ',
     'gpt-3.5-turbo': 'gpt3-16k',
     'gpt-3.5-turbo-0125': 'gpt3-16k',
@@ -202,7 +229,12 @@ export const SHORT_NAME: { [key: string]: string } = {
     'gemini-2.0-flash-thinking-exp-01-21': 'gem-20fx',
     'gemini-2.0-flash-001': 'gem-20f1',
     'gemini-2.0-pro-exp-02-05': 'gem-20px',
+    'gemini-2.5-pro-exp-03-25': 'gem-25px',
+    'gemini-2.5-flash-preview-04-17': 'gem-25fl',
+    'gemini-2.5-flash-thinking-preview-04-17': 'gem-25fl',
+    'gemini-2.5-pro-preview-03-25': 'gem-25pp',
     'gemini-2.0-flash-lite-preview-02-05': 'gem-20lp',
+    'gemini-2.0-flash-lite-001': 'gem-20l ',
     'gemini-exp-1206': 'gem-ex12',
     'gemini-1.0-pro': 'gem-10pr',
     'gemini-1.0-pro-vision': 'gem-10pv',
@@ -213,6 +245,14 @@ export const SHORT_NAME: { [key: string]: string } = {
     'claude-3-7-sonnet@20250219': 'cla-37sn',
     'claude-3-7-sonnet-thinking@20250219': 'cla-37sn',
     'claude-3-7-sonnet': 'cla-37sn',
+    // cohere
+    'command-a-03-2025': 'com-a   ',
+    'command-r': 'com-r   ',
+    'command-r-plus': 'com-rp  ',
+    'c4ai-aya-expanse-32b': 'aya-e32 ',
+    'c4ai-aya-expanse-8b': 'aya-e8  ',
+    'c4ai-aya-vision-32b': 'aya-v32 ',
+    'c4ai-aya-vision-8b': 'aya-v8  ',
     // groq
     'llama-3.3-70b-specdec': 'g-l70-sd',
     'llama-3.3-70b-versatile': 'g-l70-vs',
@@ -229,6 +269,9 @@ export const currentRatelimit: { [key: string]: Ratelimit } = {
     'gpt3.5  ': { maxTokens: 4096, limitRequests: 10000, limitTokens: 1000000, remainingRequests: 10, remainingTokens: 5000000, resetRequests: '0ms', resetTokens: '0s', },
     'gpt3-16k': { maxTokens: 4096, limitRequests: 10000, limitTokens: 1000000, remainingRequests: 10, remainingTokens: 5000000, resetRequests: '0ms', resetTokens: '0s', },
     'gpt4    ': { maxTokens: 4096, limitRequests: 10000, limitTokens: 300000, remainingRequests: 10, remainingTokens: 8000, resetRequests: '0ms', resetTokens: '0s', },
+    'gpt4.1  ': { maxTokens: 32_768, limitRequests: 10000, limitTokens: 1047576, remainingRequests: 10, remainingTokens: 8000, resetRequests: '0ms', resetTokens: '0s', },
+    'gpt4.1n ': { maxTokens: 32_768, limitRequests: 10000, limitTokens: 1047576, remainingRequests: 10, remainingTokens: 8000, resetRequests: '0ms', resetTokens: '0s', },
+    'gpt4.1m ': { maxTokens: 32_768, limitRequests: 10000, limitTokens: 1047576, remainingRequests: 10, remainingTokens: 8000, resetRequests: '0ms', resetTokens: '0s', },
     'gpt4-32k': { maxTokens: 4096, limitRequests: 10000, limitTokens: 300000, remainingRequests: 10, remainingTokens: 32000, resetRequests: '0ms', resetTokens: '0s', },
     'gpt4-128': { maxTokens: 4096, limitRequests: 10000, limitTokens: 800000, remainingRequests: 10, remainingTokens: 128000, resetRequests: '0ms', resetTokens: '0s', },
     'gpt4-vis': { maxTokens: 4096, limitRequests: 10000, limitTokens: 800000, remainingRequests: 10, remainingTokens: 128000, resetRequests: '0ms', resetTokens: '0s', },
@@ -236,8 +279,10 @@ export const currentRatelimit: { [key: string]: Ratelimit } = {
     'gpt4-om ': { maxTokens: 4096, limitRequests: 10000, limitTokens: 800000, remainingRequests: 10, remainingTokens: 128000, resetRequests: '0ms', resetTokens: '0s', },
     'o1-pre  ': { maxTokens: 32768, limitRequests: 500, limitTokens: 3000000, remainingRequests: 50, remainingTokens: 128000, resetRequests: '0ms', resetTokens: '0s', },
     'o1-pro  ': { maxTokens: 100000, limitRequests: 500, limitTokens: 3000000, remainingRequests: 50, remainingTokens: 128000, resetRequests: '0ms', resetTokens: '0s', },
-    'o1      ': { maxTokens: 200000, limitRequests: 500, limitTokens: 3000000, remainingRequests: 50, remainingTokens: 2280000, resetRequests: '0ms', resetTokens: '0s', },
-    'o3-mini ': { maxTokens: 200000, limitRequests: 500, limitTokens: 3000000, remainingRequests: 480, remainingTokens: 3000000, resetRequests: '0ms', resetTokens: '0s', },
+    'o1      ': { maxTokens: 100000, limitRequests: 500, limitTokens: 3000000, remainingRequests: 50, remainingTokens: 2280000, resetRequests: '0ms', resetTokens: '0s', },
+    'o3-mini ': { maxTokens: 100000, limitRequests: 500, limitTokens: 3000000, remainingRequests: 480, remainingTokens: 3000000, resetRequests: '0ms', resetTokens: '0s', },
+    'o3      ': { maxTokens: 100000, limitRequests: 500, limitTokens: 3000000, remainingRequests: 480, remainingTokens: 3000000, resetRequests: '0ms', resetTokens: '0s', },
+    'o4-mini ': { maxTokens: 100000, limitRequests: 500, limitTokens: 3000000, remainingRequests: 480, remainingTokens: 3000000, resetRequests: '0ms', resetTokens: '0s', },
     // groq
     'g-mxl-87': { maxTokens: 4096, limitRequests: 10, limitTokens: 100000, remainingRequests: 10, remainingTokens: 128000, resetRequests: '0ms', resetTokens: '0s', },
     'g-lm2-70': { maxTokens: 4096, limitRequests: 10, limitTokens: 100000, remainingRequests: 10, remainingTokens: 128000, resetRequests: '0ms', resetTokens: '0s', },
@@ -283,9 +328,22 @@ export const currentRatelimit: { [key: string]: Ratelimit } = {
     'gem-20fx': { maxTokens: 8192, limitRequests: 100, limitTokens: 1000000, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
     'gem-ex12': { maxTokens: 8192, limitRequests: 100, limitTokens: 1000000, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
 
-    'gem-20f1': { maxTokens: 8192, limitRequests: 100, limitTokens: 1000000, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'gem-20f1': { maxTokens: 8192, limitRequests: 100, limitTokens: 1048576, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
     'gem-20px': { maxTokens: 8192, limitRequests: 100, limitTokens: 2000000, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'gem-25px': { maxTokens: 65536, limitRequests: 100, limitTokens: 1048576, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'gem-25pp': { maxTokens: 65536, limitRequests: 100, limitTokens: 1048576, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
     'gem-20lp': { maxTokens: 8192, limitRequests: 100, limitTokens: 1000000, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'gem-20l ': { maxTokens: 8192, limitRequests: 100, limitTokens: 1048576, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'gem-25fl': { maxTokens: 65536, limitRequests: 100, limitTokens: 1048576, remainingRequests: 10, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+
+    // cohere
+    'com-a   ': { maxTokens: 8192, limitRequests: 40, limitTokens: 256000, remainingRequests: 20, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'com-r   ': { maxTokens: 8192, limitRequests: 40, limitTokens: 256000, remainingRequests: 20, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'com-rp  ': { maxTokens: 8192, limitRequests: 40, limitTokens: 256000, remainingRequests: 20, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'aya-e32 ': { maxTokens: 8192, limitRequests: 40, limitTokens: 256000, remainingRequests: 20, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'aya-e8  ': { maxTokens: 8192, limitRequests: 40, limitTokens: 256000, remainingRequests: 20, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'aya-v32 ': { maxTokens: 8192, limitRequests: 40, limitTokens: 256000, remainingRequests: 20, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
+    'aya-v8  ': { maxTokens: 8192, limitRequests: 40, limitTokens: 256000, remainingRequests: 20, remainingTokens: 200000, resetRequests: '1000ms', resetTokens: '60s', },
 
     // vertex llama
     'vla31-40': { maxTokens: 4096, limitRequests: 5, limitTokens: 2000000, remainingRequests: 10, remainingTokens: 128000, resetRequests: '1000ms', resetTokens: '60s', },

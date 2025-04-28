@@ -28,6 +28,7 @@ export class FileGroupEntity extends MyBaseEntity {
 }
 
 @Entity()
+@Index(['tenantKey', 'fileGroupId'])
 export class FileEntity extends MyBaseEntity {
     // @PrimaryGeneratedColumn('uuid')
     // id!: string;
