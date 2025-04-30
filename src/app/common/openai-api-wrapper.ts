@@ -885,7 +885,7 @@ class RunBit {
                     systemInstruction: req.systemInstruction,
                     cachedContent: req.cachedContent as any,
                     generationConfig: req.generationConfig as any,
-                    safetySettings: req.safetySettings,
+                    safetySettings: req.safetySettings as any,
                     toolConfig: req.toolConfig as any,
                     tools: req.tools as any,
                 };
@@ -2719,6 +2719,7 @@ export const invalidMimeList = [
     // 'application/vnd.ms-excel',
     // 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/java-vm',
+    'application/java-archive',
     'application/x-elf',
     // 'application/xml',
     'application/x-msdownload',
